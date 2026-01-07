@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+artifacts/
+cache/
+typechain-types/
+
+# Coverage
+coverage/
+coverage.json
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Deployment
+deployments/localhost/
+deployments/hardhat/
+
+# Keys (sensitive)
+keys/
+
+# Logs
+*.log
+npm-debug.log*
+
