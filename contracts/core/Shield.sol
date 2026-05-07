@@ -39,8 +39,12 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
 
     // ============ State Variables ============
     
-    // Verifier contract for ZK proofs
-    address public verifier;
+    // Verifier contracts for ZK proofs. We have one per circuit because
+    // each circuit has a different number of public signals — the generated
+    // verifyProof() signature is statically typed (uint256[N] calldata),
+    // so a single contract address can't serve all paths.
+    address public transferVerifier;  // 3 public signals
+    address public unshieldVerifier;  // 6 public signals
     
     // Merkle tree for commitments
     MerkleTree.TreeData private commitmentTree;
@@ -80,16 +84,23 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
     
     /**
      * @notice Initialize the Shield contract
-     * @param _verifier Address of the ZK verifier contract
+     * @param _transferVerifier Verifier for the private-transfer circuit
+     *        (3 public signals: root, nullifierHash, newCommitment)
+     * @param _unshieldVerifier Verifier for the unshield/withdraw circuit
+     *        (6 public signals: root, nullifierHash, recipient, tokenId,
+     *        amount, fee)
      * @param _feeRecipient Address to receive protocol fees
      */
     constructor(
-        address _verifier,
+        address _transferVerifier,
+        address _unshieldVerifier,
         address _feeRecipient
     ) Ownable(msg.sender) {
-        require(_verifier != address(0), "Shield: invalid verifier");
-        
-        verifier = _verifier;
+        require(_transferVerifier != address(0), "Shield: invalid transfer verifier");
+        require(_unshieldVerifier != address(0), "Shield: invalid unshield verifier");
+
+        transferVerifier = _transferVerifier;
+        unshieldVerifier = _unshieldVerifier;
         feeRecipient = _feeRecipient;
         protocolFeeBps = 30; // 0.3% default fee
         
@@ -152,8 +163,8 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         uint256[2] calldata _pC,
         uint256 _root,
         uint256 _nullifierHash,
-        address payable _recipient,
-        address payable _relayer,
+        address _recipient,
+        address _relayer,
         uint256 _fee,
         address _token,
         uint256 _amount
@@ -164,18 +175,25 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         require(_recipient != address(0), "Shield: invalid recipient");
         require(_fee <= _amount, "Shield: fee exceeds amount");
         
-        // Verify ZK proof
-        // Public inputs: root, nullifierHash, recipient, token, amount, fee
-        uint256[] memory pubSignals = new uint256[](6);
-        pubSignals[0] = _root;
-        pubSignals[1] = _nullifierHash;
-        pubSignals[2] = uint256(uint160(_recipient));
-        pubSignals[3] = uint256(uint160(_token));
-        pubSignals[4] = _amount;
-        pubSignals[5] = _fee;
-        
+        // Verify ZK proof against the unshield circuit verifier.
+        // Public inputs (must match circuits/unshield.circom output order):
+        //   [0] root
+        //   [1] nullifierHash
+        //   [2] recipient (address as uint256)
+        //   [3] tokenId / token address as uint256
+        //   [4] amount
+        //   [5] fee
+        uint256[6] memory pubSignals = [
+            _root,
+            _nullifierHash,
+            addressToUint256(_recipient),
+            addressToUint256(_token),
+            _amount,
+            _fee
+        ];
+
         require(
-            IVerifier(verifier).verifyProof(_pA, _pB, _pC, pubSignals),
+            IUnshieldVerifier(unshieldVerifier).verifyProof(_pA, _pB, _pC, pubSignals),
             "Shield: invalid proof"
         );
         
@@ -189,12 +207,12 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         // Transfer tokens
         if (_token == NATIVE_TOKEN) {
             // Transfer to recipient
-            (bool success1, ) = _recipient.call{value: netAmount}("");
+            (bool success1, ) = payable(_recipient).call{value: netAmount}("");
             require(success1, "Shield: native transfer failed");
             
             // Transfer relayer fee
             if (_fee > 0 && _relayer != address(0)) {
-                (bool success2, ) = _relayer.call{value: _fee}("");
+                (bool success2, ) = payable(_relayer).call{value: _fee}("");
                 require(success2, "Shield: relayer fee transfer failed");
             }
             
@@ -235,14 +253,15 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         require(!nullifierHashes[_nullifierHash], "Shield: already spent");
         require(isKnownRoot(_root), "Shield: unknown root");
         
-        // Verify ZK proof for transfer
-        uint256[] memory pubSignals = new uint256[](3);
-        pubSignals[0] = _root;
-        pubSignals[1] = _nullifierHash;
-        pubSignals[2] = _newCommitment;
-        
+        // Verify ZK proof against the transfer circuit verifier.
+        // Public inputs (transfer.circom output order):
+        //   [0] root
+        //   [1] nullifierHash (of the input note)
+        //   [2] newCommitment (of the output note)
+        uint256[3] memory pubSignals = [_root, _nullifierHash, _newCommitment];
+
         require(
-            IVerifier(verifier).verifyProof(_pA, _pB, _pC, pubSignals),
+            ITransferVerifier(transferVerifier).verifyProof(_pA, _pB, _pC, pubSignals),
             "Shield: invalid proof"
         );
         
@@ -306,11 +325,20 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
     }
     
     /**
-     * @notice Update verifier contract
+     * @notice Update the transfer-circuit verifier contract. Used when
+     *         the circuit is re-generated (e.g. after Phase 2 ceremony).
      */
-    function setVerifier(address _verifier) external onlyOwner {
+    function setTransferVerifier(address _verifier) external onlyOwner {
         require(_verifier != address(0), "Shield: invalid verifier");
-        verifier = _verifier;
+        transferVerifier = _verifier;
+    }
+
+    /**
+     * @notice Update the unshield-circuit verifier contract.
+     */
+    function setUnshieldVerifier(address _verifier) external onlyOwner {
+        require(_verifier != address(0), "Shield: invalid verifier");
+        unshieldVerifier = _verifier;
     }
     
     /**
@@ -336,6 +364,13 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
     }
 
     // ============ Internal Functions ============
+    
+    /**
+     * @notice Convert address to uint256
+     */
+    function addressToUint256(address _addr) internal pure returns (uint256) {
+        return uint256(uint160(address(_addr)));
+    }
     
     /**
      * @notice Initialize zero values for Merkle tree
