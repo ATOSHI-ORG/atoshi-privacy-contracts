@@ -55,6 +55,7 @@ async function main() {
   const transferVerifierArtifact = loadArtifact("verifiers/TransferVerifier.sol/TransferVerifier.json");
   const unshieldVerifierArtifact = loadArtifact("verifiers/UnshieldVerifier.sol/UnshieldVerifier.json");
   const tokenRegistryArtifact    = loadArtifact("tokens/TokenRegistry.sol/TokenRegistry.json");
+  const energySettlementArtifact = loadArtifact("core/EnergySettlement.sol/EnergySettlement.json");
   const shieldArtifact           = loadArtifact("core/Shield.sol/Shield.json");
   console.log("Artifacts 加载完成");
   console.log("");
@@ -108,6 +109,19 @@ async function main() {
   console.log("   Poseidon(2):      ", poseidonAddress);
   console.log("");
 
+  // ============== EnergySettlement ==============
+  // Tracks per-relayer quota for L1 → L2 energy delegation. Owner is
+  // the deployer; transfer to a multisig post-deploy. Shield's address
+  // is wired in below after Shield is deployed.
+  console.log("3b/5 部署 EnergySettlement...");
+  const energySettlement = await new ethers.ContractFactory(
+    energySettlementArtifact.abi, energySettlementArtifact.bytecode, wallet,
+  ).deploy(txOpts(2_000_000));
+  await energySettlement.waitForDeployment();
+  const energySettlementAddress = await energySettlement.getAddress();
+  console.log("   EnergySettlement: ", energySettlementAddress);
+  console.log("");
+
   // ============== TokenRegistry ==============
   console.log("4/5  部署 TokenRegistry...");
   const tokenRegistry = await new ethers.ContractFactory(
@@ -136,6 +150,13 @@ async function main() {
   console.log("   Shield:           ", shieldAddress);
   console.log("");
 
+  // Wire Shield <-> EnergySettlement (only Shield can consume quota).
+  console.log("5a/5 wiring Shield ↔ EnergySettlement...");
+  await (await energySettlement.setShield(shieldAddress, txOpts(200_000))).wait();
+  await (await shield.setEnergySettlement(energySettlementAddress, txOpts(200_000))).wait();
+  console.log("   wired.");
+  console.log("");
+
   const deploymentInfo = {
     network: "atoshi_l2",
     chainId: L2_CHAIN_ID,
@@ -143,12 +164,13 @@ async function main() {
     deployer: wallet.address,
     timestamp: new Date().toISOString(),
     contracts: {
-      ShieldVerifier:   shieldVerifierAddress,
-      TransferVerifier: transferVerifierAddress,
-      UnshieldVerifier: unshieldVerifierAddress,
-      Poseidon:         poseidonAddress,
-      TokenRegistry:    tokenRegistryAddress,
-      Shield:           shieldAddress,
+      ShieldVerifier:    shieldVerifierAddress,
+      TransferVerifier:  transferVerifierAddress,
+      UnshieldVerifier:  unshieldVerifierAddress,
+      Poseidon:          poseidonAddress,
+      EnergySettlement:  energySettlementAddress,
+      TokenRegistry:     tokenRegistryAddress,
+      Shield:            shieldAddress,
     },
   };
 
@@ -162,6 +184,7 @@ async function main() {
   console.log("TransferVerifier: ", transferVerifierAddress);
   console.log("UnshieldVerifier: ", unshieldVerifierAddress);
   console.log("Poseidon(2):      ", poseidonAddress);
+  console.log("EnergySettlement: ", energySettlementAddress);
   console.log("TokenRegistry:    ", tokenRegistryAddress);
   console.log("Shield:           ", shieldAddress);
   console.log("============================================================");
