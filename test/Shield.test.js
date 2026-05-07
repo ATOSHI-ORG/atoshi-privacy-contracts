@@ -3,7 +3,8 @@ const { ethers } = require("hardhat");
 
 describe("Shield Contract", function () {
   let shield;
-  let verifier;
+  let transferVerifier;
+  let unshieldVerifier;
   let mockToken;
   let owner;
   let user1;
@@ -16,16 +17,34 @@ describe("Shield Contract", function () {
   beforeEach(async function () {
     [owner, user1, user2, relayer] = await ethers.getSigners();
 
-    // Deploy mock verifier
-    const Verifier = await ethers.getContractFactory("Groth16Verifier");
-    verifier = await Verifier.deploy();
-    await verifier.waitForDeployment();
+    // Deploy the auto-generated verifiers. We do NOT deploy ShieldVerifier
+    // here because the current Shield contract does not call it (deposit
+    // does not enforce a ZK proof of correct commitment). It exists for
+    // future use (proof-of-correct-commitment on deposit).
+    //
+    // NOTE: fully-qualified names because the legacy contracts/core/
+    // Verifier.sol still defines empty TransferVerifier / WithdrawVerifier
+    // shells. Once that file is removed (after Step 2 deploy stabilizes)
+    // the short names "TransferVerifier" / "UnshieldVerifier" become
+    // unambiguous and the qualified paths can be simplified.
+    const TransferV = await ethers.getContractFactory(
+      "contracts/verifiers/TransferVerifier.sol:TransferVerifier",
+    );
+    transferVerifier = await TransferV.deploy();
+    await transferVerifier.waitForDeployment();
 
-    // Deploy Shield contract
+    const UnshieldV = await ethers.getContractFactory(
+      "contracts/verifiers/UnshieldVerifier.sol:UnshieldVerifier",
+    );
+    unshieldVerifier = await UnshieldV.deploy();
+    await unshieldVerifier.waitForDeployment();
+
+    // Deploy Shield contract with the new 3-argument constructor.
     const Shield = await ethers.getContractFactory("Shield");
     shield = await Shield.deploy(
-      await verifier.getAddress(),
-      owner.address
+      await transferVerifier.getAddress(),
+      await unshieldVerifier.getAddress(),
+      owner.address, // feeRecipient
     );
     await shield.waitForDeployment();
 
@@ -42,8 +61,9 @@ describe("Shield Contract", function () {
   });
 
   describe("Deployment", function () {
-    it("Should set the correct verifier", async function () {
-      expect(await shield.verifier()).to.equal(await verifier.getAddress());
+    it("Should set the correct transfer + unshield verifiers", async function () {
+      expect(await shield.transferVerifier()).to.equal(await transferVerifier.getAddress());
+      expect(await shield.unshieldVerifier()).to.equal(await unshieldVerifier.getAddress());
     });
 
     it("Should set the correct owner", async function () {
@@ -190,10 +210,15 @@ describe("Shield Contract", function () {
       expect(await shield.supportedTokens(tokenAddress)).to.be.false;
     });
 
-    it("Should allow owner to update verifier", async function () {
-      const newVerifier = user2.address;
-      await shield.setVerifier(newVerifier);
-      expect(await shield.verifier()).to.equal(newVerifier);
+    it("Should allow owner to update transfer + unshield verifiers", async function () {
+      // Re-key one verifier at a time (e.g. after a Phase 2 ceremony only
+      // re-runs one circuit). Use user2.address as a placeholder; the
+      // contract just stores the address.
+      const newAddr = user2.address;
+      await shield.setTransferVerifier(newAddr);
+      expect(await shield.transferVerifier()).to.equal(newAddr);
+      await shield.setUnshieldVerifier(newAddr);
+      expect(await shield.unshieldVerifier()).to.equal(newAddr);
     });
 
     it("Should allow owner to set protocol fee", async function () {
