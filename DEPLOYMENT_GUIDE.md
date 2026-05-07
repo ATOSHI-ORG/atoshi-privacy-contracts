@@ -187,12 +187,13 @@ A: 私钥 `3B7955D25189C99A7468192FCBC6429205C158834053EBE3F78F4512AB432DB9` 对
 
 ### 必读：跟旧版的差异
 
-| 项 | 旧版（占位） | 新版（snarkjs 生成） |
+| 项 | 旧版（占位） | 新版（snarkjs + circomlibjs） |
 |---|---|---|
 | 验证器合约数量 | 1 个 (`Groth16Verifier`) | **3 个**（每个电路一个） |
-| Shield 构造函数 | `(verifier, feeRecipient)` | `(transferVerifier, unshieldVerifier, feeRecipient)` |
+| Shield 构造函数 | `(verifier, feeRecipient)` | `(transferVerifier, unshieldVerifier, **poseidon**, feeRecipient)` |
 | `verifyProof` 第 4 参数 | `uint256[]`（动态） | `uint256[N]` 固定大小（N=1/3/6） |
-| 链上是否真的能验真实证明 | ❌ 不行（常量是占位符） | ✅ 行 |
+| Merkle Poseidon 哈希 | ❌ 假（keccak256 包装） | ✅ 真（circomlibjs 生成的 Poseidon 字节码部署） |
+| 链上是否真的能验真实证明 | ❌ 不行（hash 不一致 + 常量是占位） | ✅ 行 |
 
 ### 前置条件
 
@@ -230,14 +231,15 @@ npx hardhat compile
 node scripts/deploy-direct.js
 ```
 
-部署脚本会按顺序部署 5 个合约：
+部署脚本会按顺序部署 6 个合约：
 
-```
-1/5  ShieldVerifier      (1 public signal)
-2/5  TransferVerifier    (3 public signals)
-3/5  UnshieldVerifier    (6 public signals)
-4/5  TokenRegistry
-5/5  Shield               ← 构造函数收前两个 verifier 地址
+```text
+1/5   ShieldVerifier      (1 public signal)
+2/5   TransferVerifier    (3 public signals)
+3/5   UnshieldVerifier    (6 public signals)
+3a/5  Poseidon(2)         (real Poseidon, bytecode from circomlibjs)
+4/5   TokenRegistry
+5/5   Shield               ← 构造函数收 transferVerifier / unshieldVerifier / poseidon / feeRecipient
 ```
 
 部署成功后会写 `deployments/atoshi_l2.json`，例如：
@@ -253,6 +255,7 @@ node scripts/deploy-direct.js
     "ShieldVerifier":   "0x...",
     "TransferVerifier": "0x...",
     "UnshieldVerifier": "0x...",
+    "Poseidon":         "0x...",
     "TokenRegistry":    "0x...",
     "Shield":           "0x..."
   }

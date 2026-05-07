@@ -11,6 +11,7 @@
 // Run with:
 //   PRIVATE_KEY=0x... L2_RPC_URL=http://... node scripts/deploy-direct.js
 const { ethers } = require("ethers");
+const { poseidonContract } = require("circomlibjs");
 const fs = require("fs");
 const path = require("path");
 
@@ -92,6 +93,21 @@ async function main() {
   console.log("   UnshieldVerifier: ", unshieldVerifierAddress);
   console.log("");
 
+  // ============== Real Poseidon (circomlibjs bytecode) ==============
+  // poseidonContract.createCode(2) generates the bytecode of a real
+  // Poseidon hash with arity 2 (matches the hash used inside the
+  // off-chain circuit and the SDK). Deployed as a stateless contract
+  // and passed by address into Shield.
+  console.log("3a/5 部署 Poseidon(2) (real, bytecode from circomlibjs)...");
+  const poseidonAbi = poseidonContract.generateABI(2);
+  const poseidonBytecode = poseidonContract.createCode(2);
+  const poseidonFactory = new ethers.ContractFactory(poseidonAbi, poseidonBytecode, wallet);
+  const poseidon = await poseidonFactory.deploy(txOpts(3_000_000));
+  await poseidon.waitForDeployment();
+  const poseidonAddress = await poseidon.getAddress();
+  console.log("   Poseidon(2):      ", poseidonAddress);
+  console.log("");
+
   // ============== TokenRegistry ==============
   console.log("4/5  部署 TokenRegistry...");
   const tokenRegistry = await new ethers.ContractFactory(
@@ -103,14 +119,15 @@ async function main() {
   console.log("");
 
   // ============== Shield ==============
-  // Constructor signature changed: now takes (transferVerifier,
-  // unshieldVerifier, feeRecipient).
+  // Constructor signature: (transferVerifier, unshieldVerifier,
+  // poseidon, feeRecipient). Order matters.
   console.log("5/5  部署 Shield...");
   const shield = await new ethers.ContractFactory(
     shieldArtifact.abi, shieldArtifact.bytecode, wallet,
   ).deploy(
     transferVerifierAddress,
     unshieldVerifierAddress,
+    poseidonAddress,
     wallet.address, // feeRecipient = deployer for now; change post-deploy
     txOpts(8_000_000),
   );
@@ -129,6 +146,7 @@ async function main() {
       ShieldVerifier:   shieldVerifierAddress,
       TransferVerifier: transferVerifierAddress,
       UnshieldVerifier: unshieldVerifierAddress,
+      Poseidon:         poseidonAddress,
       TokenRegistry:    tokenRegistryAddress,
       Shield:           shieldAddress,
     },
@@ -143,6 +161,7 @@ async function main() {
   console.log("ShieldVerifier:   ", shieldVerifierAddress);
   console.log("TransferVerifier: ", transferVerifierAddress);
   console.log("UnshieldVerifier: ", unshieldVerifierAddress);
+  console.log("Poseidon(2):      ", poseidonAddress);
   console.log("TokenRegistry:    ", tokenRegistryAddress);
   console.log("Shield:           ", shieldAddress);
   console.log("============================================================");

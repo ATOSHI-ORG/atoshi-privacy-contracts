@@ -1,10 +1,12 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const { poseidonContract } = require("circomlibjs");
 
 describe("Shield Contract", function () {
   let shield;
   let transferVerifier;
   let unshieldVerifier;
+  let poseidon;
   let mockToken;
   let owner;
   let user1;
@@ -39,11 +41,22 @@ describe("Shield Contract", function () {
     unshieldVerifier = await UnshieldV.deploy();
     await unshieldVerifier.waitForDeployment();
 
-    // Deploy Shield contract with the new 3-argument constructor.
+    // Deploy real Poseidon(2) from circomlibjs bytecode. The contract's
+    // Merkle tree must hash with the same Poseidon as the off-chain
+    // circuit; the previous in-tree libraries/Poseidon.sol was a
+    // keccak256 placeholder that produced incompatible hashes.
+    const poseidonAbi = poseidonContract.generateABI(2);
+    const poseidonBytecode = poseidonContract.createCode(2);
+    const poseidonFactory = new ethers.ContractFactory(poseidonAbi, poseidonBytecode, owner);
+    poseidon = await poseidonFactory.deploy();
+    await poseidon.waitForDeployment();
+
+    // Deploy Shield contract with the new 4-argument constructor.
     const Shield = await ethers.getContractFactory("Shield");
     shield = await Shield.deploy(
       await transferVerifier.getAddress(),
       await unshieldVerifier.getAddress(),
+      await poseidon.getAddress(),
       owner.address, // feeRecipient
     );
     await shield.waitForDeployment();
@@ -261,7 +274,12 @@ describe("Shield Contract", function () {
       const receipt = await tx.wait();
       
       console.log(`    Deposit gas used: ${receipt.gasUsed.toString()}`);
-      expect(receipt.gasUsed).to.be.lessThan(500000n);
+      // 20-level Merkle insertion runs Poseidon(2) at every level. Real
+      // Poseidon costs roughly 30-40k gas per call (vs ~5k for the old
+      // keccak placeholder), pushing deposit gas to ~700-800k. Cap at 1M
+      // as a regression guard; if this trips it means we accidentally
+      // re-enabled an even heavier hash or doubled the work somewhere.
+      expect(receipt.gasUsed).to.be.lessThan(1_000_000n);
     });
   });
 });
