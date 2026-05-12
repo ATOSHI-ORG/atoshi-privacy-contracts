@@ -1,0 +1,12 @@
+{
+  "network": "atoshi_l2",
+  "chainId": 67890,
+  "rpcUrl": "http://52.76.210.218:8123",
+  "deployer": "0x40a0cb1C63e026A81B55EE1308586E21eec1eFa9",
+  "timestamp": "2026-02-10T18:55:55.032Z",
+  "contracts": {
+    "Verifier": "0x411a113d3E8Ba7cDc38e103A95BFb7193135De64",
+    "TokenRegistry": "0xbC8360dAB1830f9E63a5d0F94d4145eb61C9Ea79",
+    "Shield": "0x5823E049cF25e2AD00aE8182DDf501e0B5fe387F"
+  }
+}

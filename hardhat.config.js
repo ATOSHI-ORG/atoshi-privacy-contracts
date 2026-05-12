@@ -44,6 +44,16 @@ module.exports = {
       accounts: [PRIVATE_KEY],
       gasPrice: 20000000000,
     },
+    atoshi_l2: {
+      url: process.env.L2_RPC_URL || "http://52.76.210.218:8123",
+      chainId: 67890,
+      accounts: [PRIVATE_KEY],
+      gasPrice: 1000000000, // 1 gwei
+      timeout: 120000,
+      httpHeaders: {
+        "Content-Type": "application/json",
+      },
+    },
   },
   gasReporter: {
     enabled: process.env.REPORT_GAS !== undefined,
