@@ -61,8 +61,9 @@ async function main() {
   console.log("");
 
   let nonce = await provider.getTransactionCount(wallet.address);
-  const gasPrice = ethers.parseUnits("1", "gwei");
-  const txOpts = (gasLimit) => ({ nonce: nonce++, gasLimit, gasPrice, type: 0 });
+  const maxPriorityFeePerGas = ethers.parseUnits("1", "gwei");
+  const maxFeePerGas = ethers.parseUnits("2", "gwei");
+  const txOpts = (gasLimit) => ({ nonce: nonce++, gasLimit, maxFeePerGas, maxPriorityFeePerGas, type: 2 });
 
   // ============== Verifiers ==============
   // Shield verifier (1 public signal: commitment) — currently NOT
