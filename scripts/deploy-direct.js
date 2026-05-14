@@ -33,6 +33,7 @@ async function main() {
   console.log("L2 Chain ID:", L2_CHAIN_ID);
 
   const provider = new ethers.JsonRpcProvider(L2_RPC_URL, L2_CHAIN_ID, { batchMaxCount: 1 });
+  provider.getFeeData = async () => ({ gasPrice: 1000000000n, maxFeePerGas: 2000000000n, maxPriorityFeePerGas: 1000000000n, toJSON() { return this; } });
   const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
 
   console.log("部署账户:", wallet.address);
@@ -62,8 +63,8 @@ async function main() {
 
   let nonce = await provider.getTransactionCount(wallet.address);
   const maxPriorityFeePerGas = ethers.parseUnits("1", "gwei");
-  const maxFeePerGas = ethers.parseUnits("2", "gwei");
-  const txOpts = (gasLimit) => ({ nonce: nonce++, gasLimit, maxFeePerGas, maxPriorityFeePerGas, type: 2 });
+  const gasPrice = ethers.parseUnits("2", "gwei");
+  const txOpts = (gasLimit) => ({ nonce: nonce++, gasLimit, gasPrice, type: 0 });
 
   // ============== Verifiers ==============
   // Shield verifier (1 public signal: commitment) — currently NOT
