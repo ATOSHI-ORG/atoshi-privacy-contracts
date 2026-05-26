@@ -26,6 +26,11 @@ library MerkleTree {
         uint32 levels;
         uint32 nextIndex;
         mapping(uint256 => uint256) filledSubtrees;
+        // Pre-computed hash of an empty subtree at each level.
+        // zeros[i] = level-i value if the entire subtree below is empty.
+        // Used as the right sibling of a freshly-inserted left-child leaf
+        // (Tornado-Cash style).  Set once in initialize(), never changed.
+        mapping(uint256 => uint256) zeros;
         mapping(uint256 => uint256) roots;
         uint32 currentRootIndex;
         uint32 rootHistorySize;
@@ -59,9 +64,10 @@ library MerkleTree {
         self.rootHistorySize = _rootHistorySize;
         self.poseidon = _poseidon;
 
-        // Initialize filled subtrees with zero values
+        // Initialize filled subtrees and store zeros separately.
         for (uint32 i = 0; i < _levels; i++) {
             self.filledSubtrees[i] = _zeros[i];
+            self.zeros[i] = _zeros[i];
         }
 
         // Set initial root (empty tree root)
@@ -88,12 +94,16 @@ library MerkleTree {
         
         for (uint32 i = 0; i < self.levels; i++) {
             if (currentIndex % 2 == 0) {
-                // Current node is a left child
+                // Current node is a left child. Its right sibling is the
+                // empty subtree value at this level. (Tornado-Cash style;
+                // previously used filledSubtrees[i] which was wrong and
+                // produced non-standard roots for 2+ leaves.)
                 left = currentLevelHash;
-                right = self.filledSubtrees[i];
+                right = self.zeros[i];
                 self.filledSubtrees[i] = currentLevelHash;
             } else {
-                // Current node is a right child
+                // Current node is a right child. Its left sibling is the
+                // most recent left node at this level (= filledSubtrees[i]).
                 left = self.filledSubtrees[i];
                 right = currentLevelHash;
             }
