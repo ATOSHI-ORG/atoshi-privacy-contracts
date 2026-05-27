@@ -49,12 +49,16 @@ interface IUnshieldVerifier {
  */
 interface IShield {
     // Events
+    /// @dev encryptedNote 是 ECIES 加密的 Note 数据(amount,blinding,...),
+    ///      接收方用自己的 viewingKey 解密即可恢复 Note. 链下生成,合约不解读.
+    ///      允许空(向后兼容,但前端建议总是带上以支持跨设备恢复).
     event Deposit(
         uint256 indexed commitment,
         uint256 leafIndex,
         uint256 timestamp,
         address indexed token,
-        uint256 amount
+        uint256 amount,
+        bytes encryptedNote
     );
 
     event Withdrawal(
@@ -66,14 +70,16 @@ interface IShield {
 
     event Transfer(
         uint256 indexed nullifierHash,
-        uint256 indexed newCommitment
+        uint256 indexed newCommitment,
+        bytes encryptedNote
     );
 
     // Functions
     function deposit(
         uint256 commitment,
         address token,
-        uint256 amount
+        uint256 amount,
+        bytes calldata encryptedNote
     ) external payable;
 
     function withdraw(

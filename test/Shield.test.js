@@ -98,10 +98,10 @@ describe("Shield Contract", function () {
       const amount = ethers.parseEther("1");
 
       await expect(
-        shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, { value: amount })
+        shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", { value: amount })
       )
         .to.emit(shield, "Deposit")
-        .withArgs(commitment, 0, (await ethers.provider.getBlock("latest")).timestamp + 1, NATIVE_TOKEN, amount);
+        .withArgs(commitment, 0, (await ethers.provider.getBlock("latest")).timestamp + 1, NATIVE_TOKEN, amount, "0x");
 
       expect(await shield.getNextIndex()).to.equal(1);
     });
@@ -111,7 +111,7 @@ describe("Shield Contract", function () {
       const amount = ethers.parseEther("1");
 
       await expect(
-        shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, { value: ethers.parseEther("0.5") })
+        shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", { value: ethers.parseEther("0.5") })
       ).to.be.revertedWith("Shield: incorrect native amount");
     });
 
@@ -120,7 +120,7 @@ describe("Shield Contract", function () {
       const amount = ethers.parseEther("1");
 
       await expect(
-        shield.connect(user1).deposit(invalidCommitment, NATIVE_TOKEN, amount, { value: amount })
+        shield.connect(user1).deposit(invalidCommitment, NATIVE_TOKEN, amount, "0x", { value: amount })
       ).to.be.revertedWith("Shield: invalid commitment");
     });
   });
@@ -135,7 +135,7 @@ describe("Shield Contract", function () {
       await mockToken.connect(user1).approve(await shield.getAddress(), amount);
 
       await expect(
-        shield.connect(user1).deposit(commitment, tokenAddress, amount)
+        shield.connect(user1).deposit(commitment, tokenAddress, amount, "0x")
       )
         .to.emit(shield, "Deposit");
 
@@ -148,7 +148,7 @@ describe("Shield Contract", function () {
       const fakeToken = user2.address; // Random address
 
       await expect(
-        shield.connect(user1).deposit(commitment, fakeToken, amount)
+        shield.connect(user1).deposit(commitment, fakeToken, amount, "0x")
       ).to.be.revertedWith("Shield: unsupported token");
     });
   });
@@ -159,7 +159,7 @@ describe("Shield Contract", function () {
 
       for (let i = 0; i < 5; i++) {
         const commitment = BigInt(i + 1) * BigInt("1000000000000000000");
-        await shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, { value: amount });
+        await shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", { value: amount });
       }
 
       expect(await shield.getNextIndex()).to.equal(5);
@@ -171,7 +171,7 @@ describe("Shield Contract", function () {
 
       for (let i = 0; i < 3; i++) {
         const commitment = BigInt(i + 1) * BigInt("1000000000000000000");
-        await shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, { value: amount });
+        await shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", { value: amount });
         roots.push(await shield.getLastRoot());
       }
 
@@ -195,7 +195,7 @@ describe("Shield Contract", function () {
       const commitment = BigInt("12345678901234567890");
       const amount = ethers.parseEther("1");
 
-      await shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, { value: amount });
+      await shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", { value: amount });
       
       const root = await shield.getLastRoot();
       expect(await shield.isKnownRoot(root)).to.be.true;
@@ -251,7 +251,7 @@ describe("Shield Contract", function () {
       const amount = ethers.parseEther("1");
 
       await expect(
-        shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, { value: amount })
+        shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", { value: amount })
       ).to.be.revertedWith("Shield: paused");
 
       await shield.setPaused(false);
@@ -270,7 +270,7 @@ describe("Shield Contract", function () {
       const commitment = BigInt("12345678901234567890");
       const amount = ethers.parseEther("1");
 
-      const tx = await shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, { value: amount });
+      const tx = await shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", { value: amount });
       const receipt = await tx.wait();
       
       console.log(`    Deposit gas used: ${receipt.gasUsed.toString()}`);

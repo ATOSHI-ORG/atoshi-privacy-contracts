@@ -172,11 +172,12 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
     function deposit(
         uint256 _commitment,
         address _token,
-        uint256 _amount
+        uint256 _amount,
+        bytes calldata _encryptedNote
     ) external payable override nonReentrant whenNotPaused validToken(_token) {
         require(_commitment < FIELD_SIZE, "Shield: invalid commitment");
         require(_amount >= minDeposits[_token], "Shield: amount too small");
-        
+
         // Handle token transfer
         if (_token == NATIVE_TOKEN) {
             require(msg.value == _amount, "Shield: incorrect native amount");
@@ -184,11 +185,11 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
             require(msg.value == 0, "Shield: unexpected native token");
             IERC20(_token).safeTransferFrom(msg.sender, address(this), _amount);
         }
-        
+
         // Insert commitment into Merkle tree
         uint32 leafIndex = commitmentTree.insert(_commitment);
-        
-        emit Deposit(_commitment, leafIndex, block.timestamp, _token, _amount);
+
+        emit Deposit(_commitment, leafIndex, block.timestamp, _token, _amount, _encryptedNote);
     }
 
     /**
@@ -302,7 +303,8 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         uint256[2] calldata _pC,
         uint256 _root,
         uint256 _nullifierHash,
-        uint256 _newCommitment
+        uint256 _newCommitment,
+        bytes calldata _encryptedNote
     ) external nonReentrant whenNotPaused {
         require(_nullifierHash < FIELD_SIZE, "Shield: invalid nullifier");
         require(_newCommitment < FIELD_SIZE, "Shield: invalid commitment");
@@ -338,7 +340,7 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         // Insert new commitment
         commitmentTree.insert(_newCommitment);
 
-        emit Transfer(_nullifierHash, _newCommitment);
+        emit Transfer(_nullifierHash, _newCommitment, _encryptedNote);
     }
 
     // ============ View Functions ============

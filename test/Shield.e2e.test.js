@@ -142,12 +142,12 @@ describe("Shield e2e: deposit -> ZK proof -> withdraw", function () {
     const amount = ethers.parseEther("1");
 
     await expect(
-      shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, {
+      shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", {
         value: amount,
       }),
     )
       .to.emit(shield, "Deposit")
-      .withArgs(commitment, 0n, anyUint(), NATIVE_TOKEN, amount);
+      .withArgs(commitment, 0n, anyUint(), NATIVE_TOKEN, amount, "0x");
 
     expect(await shield.getNextIndex()).to.equal(1);
 
@@ -178,7 +178,7 @@ describe("Shield e2e: deposit -> ZK proof -> withdraw", function () {
     );
 
     // ---- 2. Deposit ----
-    await shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, {
+    await shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", {
       value: amount,
     });
     const leafIndex = 0n; // first leaf

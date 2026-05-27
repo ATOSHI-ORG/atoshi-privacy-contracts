@@ -85,7 +85,7 @@ describe("Shield Merkle tree: 多 leaf 场景", function () {
     const commitments = [randomField(), randomField(), randomField()];
     const amount = ethers.parseEther("1");
     for (const c of commitments) {
-      await shield.connect(user1).deposit(c, NATIVE_TOKEN, amount, { value: amount });
+      await shield.connect(user1).deposit(c, NATIVE_TOKEN, amount, "0x", { value: amount });
     }
 
     // off-chain 按标准 Merkle 重建
@@ -122,7 +122,7 @@ describe("Shield Merkle tree: 多 leaf 场景", function () {
 
     // 全部 deposit
     for (const n of notes) {
-      await shield.connect(user1).deposit(n.commitment, NATIVE_TOKEN, n.amount, { value: n.amount });
+      await shield.connect(user1).deposit(n.commitment, NATIVE_TOKEN, n.amount, "0x", { value: n.amount });
     }
 
     // 取第 1 笔（leafIndex=1）
