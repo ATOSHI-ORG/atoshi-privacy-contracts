@@ -77,7 +77,7 @@ const FIELD_SIZE = BigInt(
 
 // Shield ABI（只列脚本用到的方法）
 const SHIELD_ABI = [
-  "function deposit(uint256 _commitment, address _token, uint256 _amount) external payable",
+  "function deposit(uint256 _commitment, address _token, uint256 _amount, bytes _encryptedNote) external payable",
   "function withdraw(uint256[2] _pA, uint256[2][2] _pB, uint256[2] _pC, uint256 _root, uint256 _nullifierHash, address _recipient, address _relayer, uint256 _fee, address _token, uint256 _amount) external",
   "function getLastRoot() external view returns (uint256)",
   "function getNextIndex() external view returns (uint32)",
@@ -85,7 +85,7 @@ const SHIELD_ABI = [
   "function paused() external view returns (bool)",
   "function supportedTokens(address) external view returns (bool)",
   "function minDeposits(address) external view returns (uint256)",
-  "event Deposit(uint256 indexed commitment, uint256 leafIndex, uint256 timestamp, address indexed token, uint256 amount)",
+  "event Deposit(uint256 indexed commitment, uint256 leafIndex, uint256 timestamp, address indexed token, uint256 amount, bytes encryptedNote)",
   "event Withdrawal(address indexed recipient, uint256 indexed nullifierHash, address indexed relayer, uint256 fee)",
 ];
 
@@ -270,7 +270,7 @@ async function main() {
   // deposit 内部会调 20 次链上 Poseidon (Merkle tree 20 层),消耗 600K-1M gas
   let depositGas;
   try {
-    const populated = await shield.deposit.populateTransaction(commitment, NATIVE_TOKEN, amount);
+    const populated = await shield.deposit.populateTransaction(commitment, NATIVE_TOKEN, amount, "0x");
     depositGas = await wallet.provider.estimateGas({
       from: myAddr,
       to: SHIELD_ADDR,
@@ -287,7 +287,7 @@ async function main() {
   const depositGasLimit = depositGas * 15n / 10n;
   const depositRcpt = await sendAndWait(
     wallet, shield, "deposit",
-    [commitment, NATIVE_TOKEN, amount],
+    [commitment, NATIVE_TOKEN, amount, "0x"],
     { value: amount, gasLimit: depositGasLimit },
     "Shield.deposit",
   );
@@ -331,8 +331,8 @@ async function main() {
   // 从链上拉所有 Deposit 事件,重建整棵 Merkle tree,给任意 leafIndex 算 proof
   log("5/8", "从链上拉 Deposit 事件 + 重建 Merkle tree");
 
-  // Deposit 事件: Deposit(uint256 indexed commitment, uint256 leafIndex, uint256 timestamp, address indexed token, uint256 amount)
-  const depositTopic = ethers.id("Deposit(uint256,uint256,uint256,address,uint256)");
+  // Deposit 事件: 注意现在有 bytes encryptedNote 字段
+  const depositTopic = ethers.id("Deposit(uint256,uint256,uint256,address,uint256,bytes)");
 
   // L2 RPC 限制 eth_getLogs 单次最多 10000 块,分批拉
   const CHUNK = 9000;
@@ -355,7 +355,7 @@ async function main() {
 
   // 解析所有 leaf
   const depositIface = new ethers.Interface([
-    "event Deposit(uint256 indexed commitment, uint256 leafIndex, uint256 timestamp, address indexed token, uint256 amount)",
+    "event Deposit(uint256 indexed commitment, uint256 leafIndex, uint256 timestamp, address indexed token, uint256 amount, bytes encryptedNote)",
   ]);
   const leaves = new Array(Number(afterNextIndex)).fill(null);
   for (const lg of allDepositLogs) {
