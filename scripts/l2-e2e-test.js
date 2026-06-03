@@ -42,8 +42,19 @@ const fs = require("fs");
 // ---- 配置 ----
 const L2_RPC_URL = process.env.L2_RPC_URL || "http://52.76.210.218:8123";
 const L2_CHAIN_ID = Number(process.env.L2_CHAIN_ID || 67890);
-const SHIELD_ADDR =
-  process.env.SHIELD_ADDR || "0x81fAA0D0579c82d6b77FD759C198B507180E59E9";
+// Default Shield address auto-loaded from deployments/atoshi_l2.json so the
+// e2e test always picks up the most recent redeploy without code changes.
+// Override with SHIELD_ADDR env var if you want to test a specific address.
+const SHIELD_ADDR = (() => {
+  if (process.env.SHIELD_ADDR) return process.env.SHIELD_ADDR;
+  try {
+    const dep = JSON.parse(fs.readFileSync(__dirname + "/../deployments/atoshi_l2.json", "utf8"));
+    return dep.contracts.Shield;
+  } catch (_) {
+    // Fallback to current production address (post-2026-06-03 redeploy).
+    return "0xC79bd646541DBBC54e6e4A349D44e19C33b31aF5";
+  }
+})();
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const AMOUNT_ATOS = process.env.AMOUNT_ATOS || "0.01";
 const SKIP_FORK_GUARD = process.env.SKIP_FORK_GUARD === "1";
@@ -142,8 +153,15 @@ async function sendAndWait(wallet, contract, methodName, args, overrides, label)
   populated.type = 0;
   delete populated.maxFeePerGas;
   delete populated.maxPriorityFeePerGas;
-  if (!populated.gasPrice) {
-    populated.gasPrice = await wallet.provider.getFeeData().then(d => d.gasPrice);
+
+  // fork11 base fee is 0 (no EIP-1559 traffic, baseFee decays to 0),
+  // so getFeeData().gasPrice often returns 0 or sub-gwei. But the
+  // L2 pool's DefaultMinGasPriceAllowed=1 gwei, so any tx with
+  // gasPrice < 1 gwei gets rejected with "gas price too low". Pin
+  // to 2 gwei to be safely above the pool min.
+  const MIN_GAS_PRICE = ethers.parseUnits("2", "gwei");
+  if (!populated.gasPrice || populated.gasPrice < MIN_GAS_PRICE) {
+    populated.gasPrice = MIN_GAS_PRICE;
   }
 
   // 3. 发送 + 等 receipt
@@ -268,23 +286,30 @@ async function main() {
 
   // 用 eth_estimateGas 让链自己告诉我们真实 gas 需求,然后乘以 1.5 倍 safety
   // deposit 内部会调 20 次链上 Poseidon (Merkle tree 20 层),消耗 600K-1M gas
-  let depositGas;
+  // fork11 quirk: eth_estimateGas runs the tx through the zk-executor,
+  // which often "fails" with no revert data on Shield.deposit() because
+  // the 20-level Poseidon hash chain blows past one of the ZK counter
+  // limits during simulation — even though the real tx succeeds with
+  // enough gasLimit. So if estimateGas throws, fall back to a generous
+  // fixed gas limit instead of aborting the test.
+  let depositGasLimit;
   try {
     const populated = await shield.deposit.populateTransaction(commitment, NATIVE_TOKEN, amount, "0x");
-    depositGas = await wallet.provider.estimateGas({
+    const depositGas = await wallet.provider.estimateGas({
       from: myAddr,
       to: SHIELD_ADDR,
       data: populated.data,
       value: amount,
     });
-    ok(`deposit 估算 gas = ${depositGas} (用 1.5x = ${depositGas * 15n / 10n})`);
+    depositGasLimit = depositGas * 15n / 10n;
+    ok(`deposit 估算 gas = ${depositGas} (用 1.5x = ${depositGasLimit})`);
   } catch (e) {
-    fail(
-      `eth_estimateGas 失败 — 说明 deposit 本身会 revert:\n  ${e.shortMessage || e.message}\n` +
-      `这是业务逻辑 revert,不是 gas 不够。检查 commitment / msg.value / 合约状态。`
+    depositGasLimit = 2_000_000n;
+    ok(
+      `eth_estimateGas 失败 (fork11 ZK-counter 限制), 改用固定 gas = ${depositGasLimit}.\n` +
+      `   原因: ${e.shortMessage || e.message}`
     );
   }
-  const depositGasLimit = depositGas * 15n / 10n;
   const depositRcpt = await sendAndWait(
     wallet, shield, "deposit",
     [commitment, NATIVE_TOKEN, amount, "0x"],
@@ -485,21 +510,28 @@ async function main() {
   const balBefore = await provider.getBalance(recipientAddr);
   ok(`recipient 取款前余额: ${ethers.formatEther(balBefore)} ATOS`);
 
-  // withdraw 也 estimate gas (verifier proof check 也很贵)
-  let withdrawGas;
+  // Same fork11 quirk applies to withdraw — Verifier.verifyProof() blows
+  // ZK counters in simulation. Fall back to fixed gas if estimateGas
+  // fails; real tx with enough gasLimit succeeds.
+  let withdrawGasLimit;
   try {
     const populated = await shield.withdraw.populateTransaction(
       pA, pB, pC, currentRoot, nullifierHash, recipientAddr,
       ethers.ZeroAddress, fee, NATIVE_TOKEN, amount,
     );
-    withdrawGas = await wallet.provider.estimateGas({
+    const withdrawGas = await wallet.provider.estimateGas({
       from: myAddr,
       to: SHIELD_ADDR,
       data: populated.data,
     });
-    ok(`withdraw 估算 gas = ${withdrawGas} (用 1.5x = ${withdrawGas * 15n / 10n})`);
+    withdrawGasLimit = withdrawGas * 15n / 10n;
+    ok(`withdraw 估算 gas = ${withdrawGas} (用 1.5x = ${withdrawGasLimit})`);
   } catch (e) {
-    fail(`withdraw estimateGas 失败 (业务 revert):\n  ${e.shortMessage || e.message}`);
+    withdrawGasLimit = 3_000_000n;
+    ok(
+      `eth_estimateGas 失败 (fork11 ZK-counter 限制), 改用固定 gas = ${withdrawGasLimit}.\n` +
+      `   原因: ${e.shortMessage || e.message}`
+    );
   }
 
   await sendAndWait(
@@ -511,7 +543,7 @@ async function main() {
       fee,
       NATIVE_TOKEN, amount,
     ],
-    { gasLimit: withdrawGas * 15n / 10n },
+    { gasLimit: withdrawGasLimit },
     "Shield.withdraw",
   );
 

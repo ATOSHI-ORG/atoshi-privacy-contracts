@@ -3,14 +3,14 @@
   "chainId": 67890,
   "rpcUrl": "http://52.76.210.218:8123",
   "deployer": "0x73aF73D9662BB7dDF7FED8528Ee0DA56EdD823AC",
-  "timestamp": "2026-06-03T07:18:58.076Z",
+  "timestamp": "2026-06-03T08:33:13.301Z",
   "contracts": {
-    "ShieldVerifier": "0x14AC357ad83b91c0dc0291dB28136290D4e49e48",
-    "TransferVerifier": "0x8409B3Fd5b7F48678AA8D0Ffc97aDFa18612dA6A",
-    "UnshieldVerifier": "0x14B3743E87d75786Ce350cAF26e1F719Ae5c0825",
-    "Poseidon": "0xa7944803e80B93952e9421622A4aBf75E77B5D17",
-    "EnergySettlement": "0xC1d3Bb5B7b9f4f097e7cD0126608D498A2986DAe",
-    "TokenRegistry": "0xB515a4a438c168cf34F1ABEEa40a835a39af5625",
-    "Shield": "0xC79bd646541DBBC54e6e4A349D44e19C33b31aF5"
+    "ShieldVerifier": "0xF43899DE8f1a0f2C3Afa2340147ed5e4413d0E01",
+    "TransferVerifier": "0x581BC43B990C8EeE91A4B092B0E7F5e65C07872b",
+    "UnshieldVerifier": "0x4f350841fb4A26F91480915257d9ADfE176d1a91",
+    "Poseidon": "0xcd0894b30b59068AFB9CbCF89E5207a3eB635231",
+    "EnergySettlement": "0x1079deDf612Bc12e9F45b2c90321A965Ba2F80E0",
+    "TokenRegistry": "0xaeAA7135334cEFdB45073E92b6A6fD4F4564c4fC",
+    "Shield": "0x4A951a4Bc79F156c0658d71675dcC5b2348E95DB"
   }
 }

@@ -15,6 +15,21 @@ module.exports = {
         runs: 200,
       },
       viaIR: true,
+      // Solidity 0.8.20+ defaults to "shanghai" EVM, which emits PUSH0
+      // (0x5f) opcode in contract bytecode. Polygon zkEVM fork11
+      // executor doesn't recognize PUSH0 — calls to any function that
+      // executes a PUSH0 instruction revert with "EvmError: Revert"
+      // and no revert reason data, which is exactly the symptom we saw
+      // on Shield.deposit().
+      //
+      // "paris" is the EVM version immediately before Shanghai, which
+      // is the last spec without PUSH0. Compiling with this target
+      // emits PUSH1 0 (0x6000) instead of PUSH0, costing 1 extra byte
+      // per zero push but staying compatible with fork11.
+      //
+      // When upgrading to fork12+ this can be removed (fork12 added
+      // PUSH0 support).
+      evmVersion: "paris",
     },
   },
   networks: {
