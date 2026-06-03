@@ -1,16 +1,16 @@
 {
   "network": "atoshi_l2",
   "chainId": 67890,
-  "rpcUrl": "http://localhost:8123",
+  "rpcUrl": "http://52.76.210.218:8123",
   "deployer": "0x73aF73D9662BB7dDF7FED8528Ee0DA56EdD823AC",
-  "timestamp": "2026-05-13T06:30:59.045Z",
+  "timestamp": "2026-06-03T07:18:58.076Z",
   "contracts": {
-    "ShieldVerifier": "0x8409B3Fd5b7F48678AA8D0Ffc97aDFa18612dA6A",
-    "TransferVerifier": "0x14B3743E87d75786Ce350cAF26e1F719Ae5c0825",
-    "UnshieldVerifier": "0xa7944803e80B93952e9421622A4aBf75E77B5D17",
-    "Poseidon": "0xC1d3Bb5B7b9f4f097e7cD0126608D498A2986DAe",
-    "EnergySettlement": "0xB515a4a438c168cf34F1ABEEa40a835a39af5625",
-    "TokenRegistry": "0xC79bd646541DBBC54e6e4A349D44e19C33b31aF5",
-    "Shield": "0x81fAA0D0579c82d6b77FD759C198B507180E59E9"
+    "ShieldVerifier": "0x14AC357ad83b91c0dc0291dB28136290D4e49e48",
+    "TransferVerifier": "0x8409B3Fd5b7F48678AA8D0Ffc97aDFa18612dA6A",
+    "UnshieldVerifier": "0x14B3743E87d75786Ce350cAF26e1F719Ae5c0825",
+    "Poseidon": "0xa7944803e80B93952e9421622A4aBf75E77B5D17",
+    "EnergySettlement": "0xC1d3Bb5B7b9f4f097e7cD0126608D498A2986DAe",
+    "TokenRegistry": "0xB515a4a438c168cf34F1ABEEa40a835a39af5625",
+    "Shield": "0xC79bd646541DBBC54e6e4A349D44e19C33b31aF5"
   }
 }
