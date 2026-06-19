@@ -111,6 +111,10 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         require(_transferVerifier != address(0), "Shield: invalid transfer verifier");
         require(_unshieldVerifier != address(0), "Shield: invalid unshield verifier");
         require(_poseidon != address(0), "Shield: invalid poseidon address");
+        // protocolFeeBps is set to 30 below, so protocolFee can be non-zero on
+        // the very first withdraw — feeRecipient must already point somewhere
+        // real to avoid silently locking the fee in the contract (audit Issue 5).
+        require(_feeRecipient != address(0), "Shield: feeRecipient cannot be zero");
 
         transferVerifier = _transferVerifier;
         unshieldVerifier = _unshieldVerifier;
@@ -189,7 +193,12 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         require(isKnownRoot(_root), "Shield: unknown root");
         require(_recipient != address(0), "Shield: invalid recipient");
         require(_fee <= _amount, "Shield: fee exceeds amount");
-        
+        // Without this invariant `_fee` would be subtracted from `netAmount`
+        // but never paid out, silently locking the deducted amount in the
+        // contract. Self-paid withdraws (no relayer) must set _fee = 0
+        // (audit Issue 5).
+        require(_relayer != address(0) || _fee == 0, "Shield: fee=0 required without relayer");
+
         // Verify ZK proof against the unshield circuit verifier.
         // Public inputs (must match circuits/unshield.circom output order):
         //   [0] root
@@ -366,9 +375,13 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
     }
     
     /**
-     * @notice Update fee recipient
+     * @notice Update fee recipient. Must be non-zero — if it were ever
+     *         allowed to be address(0), protocolFee would be silently
+     *         locked in the contract on every subsequent withdraw
+     *         (audit Issue 5).
      */
     function setFeeRecipient(address _recipient) external onlyOwner {
+        require(_recipient != address(0), "Shield: feeRecipient cannot be zero");
         feeRecipient = _recipient;
     }
     
