@@ -13,18 +13,6 @@ import "../libraries/MerkleTree.sol";
 // imported here; it can be removed in a follow-up cleanup.
 
 /**
- * @notice Minimal interface to the EnergySettlement contract. The
- *         transfer path needs isRegistered to avoid reverting normal
- *         user-broadcast transfers; withdraw uses consumeForRelayer
- *         unconditionally (the explicit `_relayer` param signals
- *         intent).
- */
-interface IEnergySettlement {
-    function consumeForRelayer(address relayer, uint256 gasUsed) external;
-    function isRegistered(address relayer) external view returns (bool);
-}
-
-/**
  * @title Shield
  * @notice Main privacy pool contract for Atoshi Chain
  * @dev Implements deposit/withdraw functionality with ZK proof verification
@@ -66,19 +54,6 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
     // for the zero-subtree initialization below.
     address public poseidonContract;
 
-    // Optional EnergySettlement contract. When set, withdraw() and
-    // transfer() consume the relayer's L1-derived quota. When the
-    // address is 0 the privacy stack works in "self-paid" mode where
-    // each relayer simply pays L2 gas out of pocket. The flag is
-    // mutable by the owner so we can disable it during incidents.
-    address public energySettlement;
-    // Per-tx gas charge attributed to the relayer for a withdraw. Not
-    // the actual gas_used (that is unknown until the tx finishes); a
-    // governance-tunable allowance instead. Defaults set in constructor
-    // and tweakable via setRelayerGasCharge.
-    uint256 public withdrawGasCharge;
-    uint256 public transferGasCharge;
-    
     // Merkle tree for commitments
     MerkleTree.TreeData private commitmentTree;
     
@@ -144,12 +119,6 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         poseidonContract = _poseidon;
         feeRecipient = _feeRecipient;
         protocolFeeBps = 30; // 0.3% default fee
-
-        // Defaults sized for a 20-level Merkle proof verification + the
-        // Groth16 pairing. Real measurements: withdraw ≈ 800k, transfer
-        // ≈ 750k. The owner can re-tune via setRelayerGasCharge.
-        withdrawGasCharge = 1_000_000;
-        transferGasCharge = 1_000_000;
 
         // Initialize zero values for Merkle tree (calls IPoseidon)
         _initializeZeros();
@@ -248,15 +217,6 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         // Mark nullifier as spent
         nullifierHashes[_nullifierHash] = true;
 
-        // If an EnergySettlement is configured AND the broadcaster is a
-        // registered relayer, charge the relayer's L1-derived quota
-        // for this withdraw. Reverts if the relayer has run out of
-        // budget — fail-loud so off-chain operators top up promptly.
-        // Self-paid mode is the default in tests / standalone deploys.
-        if (energySettlement != address(0) && msg.sender == _relayer) {
-            IEnergySettlement(energySettlement).consumeForRelayer(_relayer, withdrawGasCharge);
-        }
-
         // Calculate protocol fee
         uint256 protocolFee = (_amount * protocolFeeBps) / 10000;
         uint256 netAmount = _amount - _fee - protocolFee;
@@ -325,17 +285,6 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         
         // Mark old nullifier as spent
         nullifierHashes[_nullifierHash] = true;
-
-        // If a relayer broadcast this transfer, charge their quota.
-        // Self-broadcast transfers (where msg.sender is just the
-        // owner of the input note and isn't on the relayer registry)
-        // skip quota — the user pays L2 gas directly.
-        if (
-            energySettlement != address(0) &&
-            IEnergySettlement(energySettlement).isRegistered(msg.sender)
-        ) {
-            IEnergySettlement(energySettlement).consumeForRelayer(msg.sender, transferGasCharge);
-        }
 
         // Insert new commitment
         commitmentTree.insert(_newCommitment);
@@ -408,27 +357,6 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
     function setUnshieldVerifier(address _verifier) external onlyOwner {
         require(_verifier != address(0), "Shield: invalid verifier");
         unshieldVerifier = _verifier;
-    }
-
-    /**
-     * @notice Plug in (or unplug) the EnergySettlement contract that
-     *         tracks relayer quotas. Pass address(0) to fall back to
-     *         self-paid mode without redeploying Shield.
-     */
-    function setEnergySettlement(address _settlement) external onlyOwner {
-        energySettlement = _settlement;
-    }
-
-    /**
-     * @notice Tune the per-tx quota charged against a relayer for
-     *         withdraw / transfer respectively. Real measurements
-     *         on hardhat: withdraw ~800k, transfer ~750k. Bump the
-     *         allowance if the gas cost grows (new circuit, multi-
-     *         asset support, etc.).
-     */
-    function setRelayerGasCharge(uint256 _withdraw, uint256 _transfer) external onlyOwner {
-        withdrawGasCharge = _withdraw;
-        transferGasCharge = _transfer;
     }
 
     /**

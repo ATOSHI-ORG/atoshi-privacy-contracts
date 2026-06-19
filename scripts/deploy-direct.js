@@ -55,7 +55,6 @@ async function main() {
   const shieldVerifierArtifact   = loadArtifact("verifiers/ShieldVerifier.sol/ShieldVerifier.json");
   const transferVerifierArtifact = loadArtifact("verifiers/TransferVerifier.sol/TransferVerifier.json");
   const unshieldVerifierArtifact = loadArtifact("verifiers/UnshieldVerifier.sol/UnshieldVerifier.json");
-  const energySettlementArtifact = loadArtifact("core/EnergySettlement.sol/EnergySettlement.json");
   const shieldArtifact           = loadArtifact("core/Shield.sol/Shield.json");
   console.log("Artifacts 加载完成");
   console.log("");
@@ -100,7 +99,7 @@ async function main() {
   // Poseidon hash with arity 2 (matches the hash used inside the
   // off-chain circuit and the SDK). Deployed as a stateless contract
   // and passed by address into Shield.
-  console.log("3a/5 部署 Poseidon(2) (real, bytecode from circomlibjs)...");
+  console.log("3a/4 部署 Poseidon(2) (real, bytecode from circomlibjs)...");
   const poseidonAbi = poseidonContract.generateABI(2);
   const poseidonBytecode = poseidonContract.createCode(2);
   const poseidonFactory = new ethers.ContractFactory(poseidonAbi, poseidonBytecode, wallet);
@@ -108,19 +107,6 @@ async function main() {
   await poseidon.waitForDeployment();
   const poseidonAddress = await poseidon.getAddress();
   console.log("   Poseidon(2):      ", poseidonAddress);
-  console.log("");
-
-  // ============== EnergySettlement ==============
-  // Tracks per-relayer quota for L1 → L2 energy delegation. Owner is
-  // the deployer; transfer to a multisig post-deploy. Shield's address
-  // is wired in below after Shield is deployed.
-  console.log("3b/5 部署 EnergySettlement...");
-  const energySettlement = await new ethers.ContractFactory(
-    energySettlementArtifact.abi, energySettlementArtifact.bytecode, wallet,
-  ).deploy(txOpts(2_000_000));
-  await energySettlement.waitForDeployment();
-  const energySettlementAddress = await energySettlement.getAddress();
-  console.log("   EnergySettlement: ", energySettlementAddress);
   console.log("");
 
   // ============== Shield ==============
@@ -141,13 +127,6 @@ async function main() {
   console.log("   Shield:           ", shieldAddress);
   console.log("");
 
-  // Wire Shield <-> EnergySettlement (only Shield can consume quota).
-  console.log("5a/5 wiring Shield ↔ EnergySettlement...");
-  await (await energySettlement.setShield(shieldAddress, txOpts(200_000))).wait();
-  await (await shield.setEnergySettlement(energySettlementAddress, txOpts(200_000))).wait();
-  console.log("   wired.");
-  console.log("");
-
   const deploymentInfo = {
     network: "atoshi_l2",
     chainId: L2_CHAIN_ID,
@@ -159,7 +138,6 @@ async function main() {
       TransferVerifier:  transferVerifierAddress,
       UnshieldVerifier:  unshieldVerifierAddress,
       Poseidon:          poseidonAddress,
-      EnergySettlement:  energySettlementAddress,
       Shield:            shieldAddress,
     },
   };
@@ -174,7 +152,6 @@ async function main() {
   console.log("TransferVerifier: ", transferVerifierAddress);
   console.log("UnshieldVerifier: ", unshieldVerifierAddress);
   console.log("Poseidon(2):      ", poseidonAddress);
-  console.log("EnergySettlement: ", energySettlementAddress);
   console.log("Shield:           ", shieldAddress);
   console.log("============================================================");
   console.log("");
