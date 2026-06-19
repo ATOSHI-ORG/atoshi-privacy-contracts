@@ -57,7 +57,16 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
     
     // Nullifier registry (nullifierHash => spent)
     mapping(uint256 => bool) public nullifierHashes;
-    
+
+    // Commitment uniqueness registry (commitment => seen).
+    // Inserting the same commitment value twice into the Merkle tree
+    // would give it two distinct leafIndices, which violates the
+    // protocol assumption that each note has exactly one position in
+    // the tree and one nullifier. Cross-referencing this map in both
+    // deposit() and transfer() prevents any external caller from re-
+    // submitting another user's already-public commitment (audit Q2).
+    mapping(uint256 => bool) public commitments;
+
     // Token whitelist (token => enabled)
     mapping(address => bool) public supportedTokens;
     
@@ -156,6 +165,12 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
             require(msg.value == 0, "Shield: unexpected native token");
             IERC20(_token).safeTransferFrom(msg.sender, address(this), _amount);
         }
+
+        // Global commitment-uniqueness check (audit Q2): refuse to
+        // re-insert a commitment that's already in the tree, so each
+        // note has a single leafIndex / nullifier.
+        require(!commitments[_commitment], "Shield: commitment exists");
+        commitments[_commitment] = true;
 
         // Insert commitment into Merkle tree
         uint32 leafIndex = commitmentTree.insert(_commitment);
@@ -300,6 +315,11 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         
         // Mark old nullifier as spent
         nullifierHashes[_nullifierHash] = true;
+
+        // Global commitment-uniqueness check (audit Q2). See the
+        // companion check in deposit() for the rationale.
+        require(!commitments[_newCommitment], "Shield: commitment exists");
+        commitments[_newCommitment] = true;
 
         // Insert new commitment
         commitmentTree.insert(_newCommitment);
