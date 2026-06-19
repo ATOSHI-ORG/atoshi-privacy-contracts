@@ -33,7 +33,23 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
     // ============ Constants ============
     
     uint256 public constant FIELD_SIZE = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
-    uint32 public constant TREE_LEVELS = 20; // Supports 2^20 = ~1M deposits
+    // Audit Issue 7 (Medium): a 20-level tree can only hold 2^20 ≈ 1M
+    // leaves before insert() reverts permanently. At L2 gas prices
+    // (~$0.001 per transfer) an attacker who controls a single real
+    // note can self-transfer it ~1M times for roughly $1,000 and
+    // bring the privacy pool to a permanent DoS — no one else can
+    // ever insert a new commitment, freezing all future deposits and
+    // private transfers.
+    //
+    // 32 levels gives 2^32 ≈ 4.3B leaves: the same attack now costs
+    // ~$4.3M, well above any realistic blackhat budget. The circuit
+    // size grows linearly with depth (each Poseidon-2 hash adds
+    // ~250 constraints), so trees deeper than ~32 start to push
+    // proof generation latency in the browser above ~30s, where
+    // user-perceived responsiveness drops sharply. 32 is the sweet
+    // spot of capacity vs. proof time. Linked to the matching change
+    // in atoshi-privacy-circuits (Transfer(32) / Unshield(32) / Shield).
+    uint32 public constant TREE_LEVELS = 32;
     uint32 public constant ROOT_HISTORY_SIZE = 100;
     
     // Native token address placeholder
