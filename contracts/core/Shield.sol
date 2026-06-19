@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "../interfaces/IShield.sol"; // also brings in IPoseidon
 import "../libraries/MerkleTree.sol";
@@ -163,6 +164,24 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
             require(msg.value == _amount, "Shield: incorrect native amount");
         } else {
             require(msg.value == 0, "Shield: unexpected native token");
+            // Explicitly reject NFT contracts. ERC721 / ERC1155 share the
+            // `transferFrom` 4-byte selector with ERC20, so without this
+            // probe a user could deposit an NFT by passing its tokenId as
+            // `_amount`; the on-chain transferFrom would succeed, the
+            // commitment would be inserted, but withdraw() later computes
+            // `netAmount = _amount - _fee - protocolFee`, mangling the
+            // tokenId beyond recovery and stranding the NFT in the Shield
+            // (audit Q6). The probes use ERC165Checker.supportsInterface
+            // which is try/catch-safe — a plain ERC20 without ERC165 just
+            // returns false, no revert.
+            require(
+                !ERC165Checker.supportsInterface(_token, 0x80ac58cd),
+                "Shield: ERC721 not supported"
+            );
+            require(
+                !ERC165Checker.supportsInterface(_token, 0xd9b67a26),
+                "Shield: ERC1155 not supported"
+            );
             IERC20(_token).safeTransferFrom(msg.sender, address(this), _amount);
         }
 
