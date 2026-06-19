@@ -110,12 +110,13 @@ async function main() {
   console.log("");
 
   // ============== Shield ==============
-  // Constructor signature: (transferVerifier, unshieldVerifier,
-  // poseidon, feeRecipient). Order matters.
+  // Constructor signature: (shieldVerifier, transferVerifier,
+  // unshieldVerifier, poseidon, feeRecipient). Order matters.
   console.log("4/4  部署 Shield...");
   const shield = await new ethers.ContractFactory(
     shieldArtifact.abi, shieldArtifact.bytecode, wallet,
   ).deploy(
+    shieldVerifierAddress,
     transferVerifierAddress,
     unshieldVerifierAddress,
     poseidonAddress,

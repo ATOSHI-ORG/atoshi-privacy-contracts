@@ -45,6 +45,7 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
     // each circuit has a different number of public signals — the generated
     // verifyProof() signature is statically typed (uint256[N] calldata),
     // so a single contract address can't serve all paths.
+    address public shieldVerifier;    // 3 public signals: commitment, amount, tokenId
     address public transferVerifier;  // 3 public signals
     address public unshieldVerifier;  // 6 public signals
 
@@ -100,6 +101,8 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
     
     /**
      * @notice Initialize the Shield contract
+     * @param _shieldVerifier Verifier for the deposit (shield) circuit
+     *        (3 public signals: commitment, amount, tokenId)
      * @param _transferVerifier Verifier for the private-transfer circuit
      *        (3 public signals: root, nullifierHash, newCommitment)
      * @param _unshieldVerifier Verifier for the unshield/withdraw circuit
@@ -113,11 +116,13 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
      * @param _feeRecipient Address to receive protocol fees
      */
     constructor(
+        address _shieldVerifier,
         address _transferVerifier,
         address _unshieldVerifier,
         address _poseidon,
         address _feeRecipient
     ) Ownable(msg.sender) {
+        require(_shieldVerifier != address(0), "Shield: invalid shield verifier");
         require(_transferVerifier != address(0), "Shield: invalid transfer verifier");
         require(_unshieldVerifier != address(0), "Shield: invalid unshield verifier");
         require(_poseidon != address(0), "Shield: invalid poseidon address");
@@ -126,6 +131,7 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         // real to avoid silently locking the fee in the contract (audit Issue 5).
         require(_feeRecipient != address(0), "Shield: feeRecipient cannot be zero");
 
+        shieldVerifier = _shieldVerifier;
         transferVerifier = _transferVerifier;
         unshieldVerifier = _unshieldVerifier;
         poseidonContract = _poseidon;
@@ -146,11 +152,24 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
     
     /**
      * @notice Deposit tokens into the privacy pool
+     * @dev Verifies a ZK proof that the supplied commitment was correctly
+     *      formed from (amount, tokenId, owner, blinding) where amount and
+     *      tokenId equal the on-chain `_amount` and `_token` arguments.
+     *      Without this proof a depositor could pass an arbitrary commitment
+     *      that internally locks more value (or a different token) than they
+     *      actually deposited, draining the pool on withdraw (audit Issue 2).
+     * @param _pA Groth16 proof element A
+     * @param _pB Groth16 proof element B
+     * @param _pC Groth16 proof element C
      * @param _commitment The commitment hash (computed off-chain)
      * @param _token Token address (address(0) for native token)
      * @param _amount Amount to deposit
+     * @param _encryptedNote ECIES-encrypted note metadata for receiver recovery
      */
     function deposit(
+        uint256[2] calldata _pA,
+        uint256[2][2] calldata _pB,
+        uint256[2] calldata _pC,
         uint256 _commitment,
         address _token,
         uint256 _amount,
@@ -158,6 +177,21 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
     ) external payable override nonReentrant whenNotPaused validToken(_token) {
         require(_commitment < FIELD_SIZE, "Shield: invalid commitment");
         require(_amount >= minDeposits[_token], "Shield: amount too small");
+
+        // Bind commitment to the on-chain (amount, tokenId) pair via ZK proof.
+        // Public inputs (must match circuits/core/shield.circom output order):
+        //   [0] commitment
+        //   [1] amount
+        //   [2] tokenId (token address cast to uint256, 0 for native)
+        uint256[3] memory pubSignals = [
+            _commitment,
+            _amount,
+            addressToUint256(_token)
+        ];
+        require(
+            IShieldVerifier(shieldVerifier).verifyProof(_pA, _pB, _pC, pubSignals),
+            "Shield: invalid deposit proof"
+        );
 
         // Handle token transfer
         if (_token == NATIVE_TOKEN) {
@@ -398,6 +432,16 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         supportedTokens[_token] = false;
     }
     
+    /**
+     * @notice Update the shield (deposit) circuit verifier contract.
+     *         Used when the circuit is re-generated (e.g. after Phase 2
+     *         ceremony or after exposing additional public inputs).
+     */
+    function setShieldVerifier(address _verifier) external onlyOwner {
+        require(_verifier != address(0), "Shield: invalid verifier");
+        shieldVerifier = _verifier;
+    }
+
     /**
      * @notice Update the transfer-circuit verifier contract. Used when
      *         the circuit is re-generated (e.g. after Phase 2 ceremony).

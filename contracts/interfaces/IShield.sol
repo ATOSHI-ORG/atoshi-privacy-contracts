@@ -44,6 +44,29 @@ interface IUnshieldVerifier {
 }
 
 /**
+ * @title IShieldVerifier
+ * @notice Interface for the auto-generated Groth16 verifier of the
+ *         shield (deposit) circuit. Three public signals matching
+ *         circuits/core/shield.circom output order:
+ *           [0] commitment — the Poseidon-hashed note commitment
+ *           [1] amount     — token amount (must equal on-chain _amount)
+ *           [2] tokenId    — ERC-20 contract address cast to uint256
+ *                            (0 for the native token)
+ * @dev Audit Issue 2 (High): the shield circuit was updated to expose
+ *      `amount` and `tokenId` as public inputs so the deposit contract
+ *      can cross-check them against the actual on-chain transfer,
+ *      preventing the "deposit 1 wei but commit 1000 tokens" attack.
+ */
+interface IShieldVerifier {
+    function verifyProof(
+        uint256[2] calldata _pA,
+        uint256[2][2] calldata _pB,
+        uint256[2] calldata _pC,
+        uint256[3] calldata _pubSignals
+    ) external view returns (bool);
+}
+
+/**
  * @title IShield
  * @notice Interface for Shield contract
  */
@@ -76,6 +99,9 @@ interface IShield {
 
     // Functions
     function deposit(
+        uint256[2] calldata _pA,
+        uint256[2][2] calldata _pB,
+        uint256[2] calldata _pC,
         uint256 commitment,
         address token,
         uint256 amount,
