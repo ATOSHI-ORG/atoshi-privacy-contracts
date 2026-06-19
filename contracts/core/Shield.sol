@@ -280,13 +280,15 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         //   [0] root
         //   [1] nullifierHash
         //   [2] recipient (address as uint256)
-        //   [3] tokenId / token address as uint256
-        //   [4] amount
-        //   [5] fee
-        uint256[6] memory pubSignals = [
+        //   [3] relayer   (address as uint256)  — audit Issue 4
+        //   [4] tokenId / token address as uint256
+        //   [5] amount
+        //   [6] fee
+        uint256[7] memory pubSignals = [
             _root,
             _nullifierHash,
             addressToUint256(_recipient),
+            addressToUint256(_relayer),
             addressToUint256(_token),
             _amount,
             _fee

@@ -31,15 +31,27 @@ interface ITransferVerifier {
 /**
  * @title IUnshieldVerifier
  * @notice Interface for the auto-generated Groth16 verifier of the
- *         unshield circuit (6 public signals: root, nullifierHash,
- *         recipient, tokenId, amount, fee).
+ *         unshield circuit. Seven public signals in this exact order,
+ *         matching circuits/core/unshield.circom's `component main`
+ *         declaration:
+ *           [0] root
+ *           [1] nullifierHash
+ *           [2] recipient (address as uint256)
+ *           [3] relayer   (address as uint256)
+ *           [4] tokenId
+ *           [5] amount
+ *           [6] fee
+ * @dev Audit Issue 4 (High): the relayer is now bound into the proof
+ *      so an MEV attacker can't take a victim's pending withdraw and
+ *      swap `_relayer` to their own address to steal the fee. The
+ *      circuit was updated in atoshi-privacy-circuits commit 79af18b.
  */
 interface IUnshieldVerifier {
     function verifyProof(
         uint256[2] calldata _pA,
         uint256[2][2] calldata _pB,
         uint256[2] calldata _pC,
-        uint256[6] calldata _pubSignals
+        uint256[7] calldata _pubSignals
     ) external view returns (bool);
 }
 
