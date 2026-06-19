@@ -2,8 +2,18 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { poseidonContract } = require("circomlibjs");
 
+// Dummy Groth16 proof. All zeros; only valid against MockVerifiers
+// (which ignore the proof bytes and just return their `result` flag).
+// Real-proof end-to-end is covered separately in Shield.e2e.test.js.
+const ZERO_PROOF = {
+  pA: [0n, 0n],
+  pB: [[0n, 0n], [0n, 0n]],
+  pC: [0n, 0n],
+};
+
 describe("Shield Contract", function () {
   let shield;
+  let shieldVerifier;
   let transferVerifier;
   let unshieldVerifier;
   let poseidon;
@@ -19,25 +29,20 @@ describe("Shield Contract", function () {
   beforeEach(async function () {
     [owner, user1, user2, relayer] = await ethers.getSigners();
 
-    // Deploy the auto-generated verifiers. We do NOT deploy ShieldVerifier
-    // here because the current Shield contract does not call it (deposit
-    // does not enforce a ZK proof of correct commitment). It exists for
-    // future use (proof-of-correct-commitment on deposit).
-    //
-    // NOTE: fully-qualified names because the legacy contracts/core/
-    // Verifier.sol still defines empty TransferVerifier / WithdrawVerifier
-    // shells. Once that file is removed (after Step 2 deploy stabilizes)
-    // the short names "TransferVerifier" / "UnshieldVerifier" become
-    // unambiguous and the qualified paths can be simplified.
-    const TransferV = await ethers.getContractFactory(
-      "contracts/verifiers/TransferVerifier.sol:TransferVerifier",
-    );
+    // Deploy MockVerifiers for all three circuits. The unit-test suite
+    // doesn't generate real ZK proofs (too slow), so we replace each
+    // auto-generated Groth16 verifier with a mock that always returns
+    // true. The single full-stack proof flow is exercised separately
+    // in Shield.e2e.test.js with the real verifiers + keys.
+    const ShieldV = await ethers.getContractFactory("MockShieldVerifier");
+    shieldVerifier = await ShieldV.deploy();
+    await shieldVerifier.waitForDeployment();
+
+    const TransferV = await ethers.getContractFactory("MockTransferVerifier");
     transferVerifier = await TransferV.deploy();
     await transferVerifier.waitForDeployment();
 
-    const UnshieldV = await ethers.getContractFactory(
-      "contracts/verifiers/UnshieldVerifier.sol:UnshieldVerifier",
-    );
+    const UnshieldV = await ethers.getContractFactory("MockUnshieldVerifier");
     unshieldVerifier = await UnshieldV.deploy();
     await unshieldVerifier.waitForDeployment();
 
@@ -51,9 +56,11 @@ describe("Shield Contract", function () {
     poseidon = await poseidonFactory.deploy();
     await poseidon.waitForDeployment();
 
-    // Deploy Shield contract with the new 4-argument constructor.
+    // Deploy Shield. Constructor signature after audit Issue 2:
+    //   (shieldVerifier, transferVerifier, unshieldVerifier, poseidon, feeRecipient)
     const Shield = await ethers.getContractFactory("Shield");
     shield = await Shield.deploy(
+      await shieldVerifier.getAddress(),
       await transferVerifier.getAddress(),
       await unshieldVerifier.getAddress(),
       await poseidon.getAddress(),
@@ -74,7 +81,8 @@ describe("Shield Contract", function () {
   });
 
   describe("Deployment", function () {
-    it("Should set the correct transfer + unshield verifiers", async function () {
+    it("Should set the correct shield + transfer + unshield verifiers", async function () {
+      expect(await shield.shieldVerifier()).to.equal(await shieldVerifier.getAddress());
       expect(await shield.transferVerifier()).to.equal(await transferVerifier.getAddress());
       expect(await shield.unshieldVerifier()).to.equal(await unshieldVerifier.getAddress());
     });
@@ -97,11 +105,18 @@ describe("Shield Contract", function () {
       const commitment = BigInt("12345678901234567890");
       const amount = ethers.parseEther("1");
 
+      // Use `anyValue` for the timestamp arg — hardhat's block timestamp
+      // doesn't always advance by exactly 1 between getBlock("latest")
+      // and the deposit tx, especially when other beforeEach steps
+      // (verifier deploys, etc.) burn blocks of their own. Asserting the
+      // commitment / leafIndex / token / amount / encryptedNote is
+      // enough; the timestamp is just block metadata.
+      const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
       await expect(
-        shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", { value: amount })
+        shield.connect(user1).deposit(ZERO_PROOF.pA, ZERO_PROOF.pB, ZERO_PROOF.pC, commitment, NATIVE_TOKEN, amount, "0x", { value: amount })
       )
         .to.emit(shield, "Deposit")
-        .withArgs(commitment, 0, (await ethers.provider.getBlock("latest")).timestamp + 1, NATIVE_TOKEN, amount, "0x");
+        .withArgs(commitment, 0, anyValue, NATIVE_TOKEN, amount, "0x");
 
       expect(await shield.getNextIndex()).to.equal(1);
     });
@@ -111,7 +126,7 @@ describe("Shield Contract", function () {
       const amount = ethers.parseEther("1");
 
       await expect(
-        shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", { value: ethers.parseEther("0.5") })
+        shield.connect(user1).deposit(ZERO_PROOF.pA, ZERO_PROOF.pB, ZERO_PROOF.pC, commitment, NATIVE_TOKEN, amount, "0x", { value: ethers.parseEther("0.5") })
       ).to.be.revertedWith("Shield: incorrect native amount");
     });
 
@@ -120,7 +135,7 @@ describe("Shield Contract", function () {
       const amount = ethers.parseEther("1");
 
       await expect(
-        shield.connect(user1).deposit(invalidCommitment, NATIVE_TOKEN, amount, "0x", { value: amount })
+        shield.connect(user1).deposit(ZERO_PROOF.pA, ZERO_PROOF.pB, ZERO_PROOF.pC, invalidCommitment, NATIVE_TOKEN, amount, "0x", { value: amount })
       ).to.be.revertedWith("Shield: invalid commitment");
     });
   });
@@ -135,7 +150,7 @@ describe("Shield Contract", function () {
       await mockToken.connect(user1).approve(await shield.getAddress(), amount);
 
       await expect(
-        shield.connect(user1).deposit(commitment, tokenAddress, amount, "0x")
+        shield.connect(user1).deposit(ZERO_PROOF.pA, ZERO_PROOF.pB, ZERO_PROOF.pC, commitment, tokenAddress, amount, "0x")
       )
         .to.emit(shield, "Deposit");
 
@@ -148,7 +163,7 @@ describe("Shield Contract", function () {
       const fakeToken = user2.address; // Random address
 
       await expect(
-        shield.connect(user1).deposit(commitment, fakeToken, amount, "0x")
+        shield.connect(user1).deposit(ZERO_PROOF.pA, ZERO_PROOF.pB, ZERO_PROOF.pC, commitment, fakeToken, amount, "0x")
       ).to.be.revertedWith("Shield: unsupported token");
     });
   });
@@ -159,7 +174,7 @@ describe("Shield Contract", function () {
 
       for (let i = 0; i < 5; i++) {
         const commitment = BigInt(i + 1) * BigInt("1000000000000000000");
-        await shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", { value: amount });
+        await shield.connect(user1).deposit(ZERO_PROOF.pA, ZERO_PROOF.pB, ZERO_PROOF.pC, commitment, NATIVE_TOKEN, amount, "0x", { value: amount });
       }
 
       expect(await shield.getNextIndex()).to.equal(5);
@@ -171,7 +186,7 @@ describe("Shield Contract", function () {
 
       for (let i = 0; i < 3; i++) {
         const commitment = BigInt(i + 1) * BigInt("1000000000000000000");
-        await shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", { value: amount });
+        await shield.connect(user1).deposit(ZERO_PROOF.pA, ZERO_PROOF.pB, ZERO_PROOF.pC, commitment, NATIVE_TOKEN, amount, "0x", { value: amount });
         roots.push(await shield.getLastRoot());
       }
 
@@ -195,7 +210,7 @@ describe("Shield Contract", function () {
       const commitment = BigInt("12345678901234567890");
       const amount = ethers.parseEther("1");
 
-      await shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", { value: amount });
+      await shield.connect(user1).deposit(ZERO_PROOF.pA, ZERO_PROOF.pB, ZERO_PROOF.pC, commitment, NATIVE_TOKEN, amount, "0x", { value: amount });
       
       const root = await shield.getLastRoot();
       expect(await shield.isKnownRoot(root)).to.be.true;
@@ -223,11 +238,13 @@ describe("Shield Contract", function () {
       expect(await shield.supportedTokens(tokenAddress)).to.be.false;
     });
 
-    it("Should allow owner to update transfer + unshield verifiers", async function () {
+    it("Should allow owner to update shield + transfer + unshield verifiers", async function () {
       // Re-key one verifier at a time (e.g. after a Phase 2 ceremony only
       // re-runs one circuit). Use user2.address as a placeholder; the
       // contract just stores the address.
       const newAddr = user2.address;
+      await shield.setShieldVerifier(newAddr);
+      expect(await shield.shieldVerifier()).to.equal(newAddr);
       await shield.setTransferVerifier(newAddr);
       expect(await shield.transferVerifier()).to.equal(newAddr);
       await shield.setUnshieldVerifier(newAddr);
@@ -251,7 +268,7 @@ describe("Shield Contract", function () {
       const amount = ethers.parseEther("1");
 
       await expect(
-        shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", { value: amount })
+        shield.connect(user1).deposit(ZERO_PROOF.pA, ZERO_PROOF.pB, ZERO_PROOF.pC, commitment, NATIVE_TOKEN, amount, "0x", { value: amount })
       ).to.be.revertedWith("Shield: paused");
 
       await shield.setPaused(false);
@@ -270,16 +287,17 @@ describe("Shield Contract", function () {
       const commitment = BigInt("12345678901234567890");
       const amount = ethers.parseEther("1");
 
-      const tx = await shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", { value: amount });
+      const tx = await shield.connect(user1).deposit(ZERO_PROOF.pA, ZERO_PROOF.pB, ZERO_PROOF.pC, commitment, NATIVE_TOKEN, amount, "0x", { value: amount });
       const receipt = await tx.wait();
-      
+
       console.log(`    Deposit gas used: ${receipt.gasUsed.toString()}`);
-      // 20-level Merkle insertion runs Poseidon(2) at every level. Real
-      // Poseidon costs roughly 30-40k gas per call (vs ~5k for the old
-      // keccak placeholder), pushing deposit gas to ~700-800k. Cap at 1M
-      // as a regression guard; if this trips it means we accidentally
-      // re-enabled an even heavier hash or doubled the work somewhere.
-      expect(receipt.gasUsed).to.be.lessThan(1_000_000n);
+      // 32-level Merkle insertion runs Poseidon(2) at every level. Real
+      // Poseidon costs roughly 30-40k gas per call, pushing deposit gas
+      // to ~1.3M after the depth bump (was ~700k at depth 20). Cap at
+      // 1.5M as a regression guard; if this trips it means we
+      // accidentally re-enabled an even heavier hash or doubled the
+      // work somewhere. (Audit Issue 7 raised depth from 20 → 32.)
+      expect(receipt.gasUsed).to.be.lessThan(1_500_000n);
     });
   });
 });

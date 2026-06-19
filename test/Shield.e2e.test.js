@@ -33,13 +33,32 @@ const CIRCUITS_ROOT = path.resolve(
   "..",
   "atoshi-privacy-circuits",
 );
+const SHIELD_WASM = path.join(
+  CIRCUITS_ROOT, "build", "shield", "shield_js", "shield.wasm",
+);
+const SHIELD_ZKEY = path.join(CIRCUITS_ROOT, "keys", "shield_final.zkey");
 const UNSHIELD_WASM = path.join(
   CIRCUITS_ROOT, "build", "unshield", "unshield_js", "unshield.wasm",
 );
 const UNSHIELD_ZKEY = path.join(CIRCUITS_ROOT, "keys", "unshield_final.zkey");
 
-const TREE_LEVELS = 20;
+// Must match Shield.sol's TREE_LEVELS. Raised to 32 in audit Issue 7.
+const TREE_LEVELS = 32;
 const NATIVE_TOKEN = ethers.ZeroAddress;
+
+// Helper: turn a snarkjs proof into Solidity's pA/pB/pC tuple form.
+// The G2 element gets its inner pair swapped — this is the standard
+// Groth16-on-Solidity shape.
+function packProof(proof) {
+  return {
+    pA: [proof.pi_a[0], proof.pi_a[1]],
+    pB: [
+      [proof.pi_b[0][1], proof.pi_b[0][0]],
+      [proof.pi_b[1][1], proof.pi_b[1][0]],
+    ],
+    pC: [proof.pi_c[0], proof.pi_c[1]],
+  };
+}
 const FIELD_SIZE = BigInt(
   "21888242871839275222246405745257275088548364400416034343698204186575808495617",
 );
@@ -73,7 +92,10 @@ describe("Shield e2e: deposit -> ZK proof -> withdraw", function () {
   // checkout that hasn't compiled circuits yet) so this test never blocks
   // unrelated CI runs.
   before(function () {
-    if (!fs.existsSync(UNSHIELD_WASM) || !fs.existsSync(UNSHIELD_ZKEY)) {
+    if (
+      !fs.existsSync(SHIELD_WASM)   || !fs.existsSync(SHIELD_ZKEY) ||
+      !fs.existsSync(UNSHIELD_WASM) || !fs.existsSync(UNSHIELD_ZKEY)
+    ) {
       this.skip();
     }
   });
@@ -102,7 +124,15 @@ describe("Shield e2e: deposit -> ZK proof -> withdraw", function () {
     await poseidonInst.waitForDeployment();
     poseidonContractAddr = await poseidonInst.getAddress();
 
-    // Deploy verifiers (fully qualified to dodge legacy Verifier.sol shells).
+    // Deploy all 3 real verifiers. This test is the one place where we
+    // actually verify proofs against the auto-generated Groth16 contracts
+    // (unit-test files mock them via MockVerifiers.sol).
+    const ShieldV = await ethers.getContractFactory(
+      "contracts/verifiers/ShieldVerifier.sol:ShieldVerifier",
+    );
+    const shieldV = await ShieldV.deploy();
+    await shieldV.waitForDeployment();
+
     const TransferV = await ethers.getContractFactory(
       "contracts/verifiers/TransferVerifier.sol:TransferVerifier",
     );
@@ -118,6 +148,7 @@ describe("Shield e2e: deposit -> ZK proof -> withdraw", function () {
     // Deploy Shield with all wiring.
     const Shield = await ethers.getContractFactory("Shield");
     shield = await Shield.deploy(
+      await shieldV.getAddress(),
       await transferV.getAddress(),
       await unshieldV.getAddress(),
       poseidonContractAddr,
@@ -136,15 +167,38 @@ describe("Shield e2e: deposit -> ZK proof -> withdraw", function () {
   });
 
   it("accepts a deposit and exposes the new root", async function () {
-    // Use a random commitment value — Shield doesn't enforce its
-    // structure on deposit, only on withdraw via ZK proof.
-    const commitment = randomField();
+    // Generate a real Note so we can also produce the deposit-time
+    // shield proof (audit Issue 2 binds amount + tokenId into the proof).
+    const privateKey = randomField();
+    const blinding = randomField();
     const amount = ethers.parseEther("1");
+    const tokenId = 0n; // NATIVE_TOKEN -> 0
+
+    const ownerPubKey = F.toObject(poseidon([privateKey]));
+    const commitment = F.toObject(
+      poseidon([toBigInt(amount), tokenId, ownerPubKey, blinding]),
+    );
+
+    // Prove correct commitment formation for the shield circuit.
+    const { proof: shieldProof } = await snarkjs.groth16.fullProve(
+      {
+        commitment: commitment.toString(),
+        amount: amount.toString(),
+        tokenId: tokenId.toString(),
+        owner: ownerPubKey.toString(),
+        blinding: blinding.toString(),
+      },
+      SHIELD_WASM,
+      SHIELD_ZKEY,
+    );
+    const sp = packProof(shieldProof);
 
     await expect(
-      shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", {
-        value: amount,
-      }),
+      shield.connect(user1).deposit(
+        sp.pA, sp.pB, sp.pC,
+        commitment, NATIVE_TOKEN, amount, "0x",
+        { value: amount },
+      ),
     )
       .to.emit(shield, "Deposit")
       .withArgs(commitment, 0n, anyUint(), NATIVE_TOKEN, amount, "0x");
@@ -152,7 +206,7 @@ describe("Shield e2e: deposit -> ZK proof -> withdraw", function () {
     expect(await shield.getNextIndex()).to.equal(1);
 
     // Off-chain mirror: with our commitment at leaf 0 and zeros[i] as
-    // every right sibling, root = pathHash(commitment, zeros[0..19]).
+    // every right sibling, root = pathHash(commitment, zeros[0..31]).
     let cur = commitment;
     for (let i = 0; i < TREE_LEVELS; i++) {
       cur = F.toObject(poseidon([cur, zeros[i]]));
@@ -177,10 +231,24 @@ describe("Shield e2e: deposit -> ZK proof -> withdraw", function () {
       poseidon([toBigInt(amount), tokenId, ownerPubKey, blinding]),
     );
 
-    // ---- 2. Deposit ----
-    await shield.connect(user1).deposit(commitment, NATIVE_TOKEN, amount, "0x", {
-      value: amount,
-    });
+    // ---- 2. Deposit (with shield proof, audit Issue 2) ----
+    const { proof: shieldProof } = await snarkjs.groth16.fullProve(
+      {
+        commitment: commitment.toString(),
+        amount: amount.toString(),
+        tokenId: tokenId.toString(),
+        owner: ownerPubKey.toString(),
+        blinding: blinding.toString(),
+      },
+      SHIELD_WASM,
+      SHIELD_ZKEY,
+    );
+    const sp = packProof(shieldProof);
+    await shield.connect(user1).deposit(
+      sp.pA, sp.pB, sp.pC,
+      commitment, NATIVE_TOKEN, amount, "0x",
+      { value: amount },
+    );
     const leafIndex = 0n; // first leaf
 
     // ---- 3. Build Merkle proof off-chain ----
@@ -195,12 +263,15 @@ describe("Shield e2e: deposit -> ZK proof -> withdraw", function () {
     );
 
     // ---- 5. Generate ZK proof ----
+    // `relayer` is now part of the unshield circuit's public input set
+    // (audit Issue 3 / contract Issue 4), so it must be included here.
     const recipientUint = BigInt(recipient.address);
     const input = {
       // public
       root: (await shield.getLastRoot()).toString(),
       nullifierHash: nullifierHash.toString(),
       recipient: recipientUint.toString(),
+      relayer: BigInt(relayer.address).toString(),
       tokenId: tokenId.toString(),
       amount: amount.toString(),
       fee: fee.toString(),
@@ -217,15 +288,11 @@ describe("Shield e2e: deposit -> ZK proof -> withdraw", function () {
     );
 
     // ---- 6. Format proof for Solidity (Groth16 G2 has a swap) ----
-    const pA = [proof.pi_a[0], proof.pi_a[1]];
-    const pB = [
-      [proof.pi_b[0][1], proof.pi_b[0][0]], // intentional inner swap
-      [proof.pi_b[1][1], proof.pi_b[1][0]],
-    ];
-    const pC = [proof.pi_c[0], proof.pi_c[1]];
+    const up = packProof(proof);
+    const pA = up.pA, pB = up.pB, pC = up.pC;
 
     // ---- 7. Sanity: pubSignals from snarkjs match our inputs ----
-    expect(publicSignals.length).to.equal(6);
+    expect(publicSignals.length).to.equal(7);
     expect(publicSignals[0]).to.equal(input.root);
     expect(publicSignals[1]).to.equal(nullifierHash.toString());
 

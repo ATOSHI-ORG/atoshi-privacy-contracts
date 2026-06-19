@@ -18,8 +18,19 @@ const CIRCUITS_ROOT = path.resolve(__dirname, "..", "..", "atoshi-privacy-circui
 const UNSHIELD_WASM = path.join(CIRCUITS_ROOT, "build", "unshield", "unshield_js", "unshield.wasm");
 const UNSHIELD_ZKEY = path.join(CIRCUITS_ROOT, "keys", "unshield_final.zkey");
 
-const TREE_LEVELS = 20;
+// Must match Shield.sol's TREE_LEVELS. Raised to 32 in audit Issue 7.
+const TREE_LEVELS = 32;
 const NATIVE_TOKEN = ethers.ZeroAddress;
+
+// Dummy proof for the deposit() path. We deploy MockShieldVerifier in
+// beforeEach so the deposit ZK check is a no-op; this test focuses on
+// Merkle tree behavior across multiple leaves, not on proving correct
+// commitment formation (that's covered in Shield.e2e.test.js).
+const ZERO_PROOF = {
+  pA: [0n, 0n],
+  pB: [[0n, 0n], [0n, 0n]],
+  pC: [0n, 0n],
+};
 
 function randomField() {
   return BigInt("0x" + Buffer.from(ethers.randomBytes(31)).toString("hex"));
@@ -58,6 +69,15 @@ describe("Shield Merkle tree: 多 leaf 场景", function () {
     await poseidonInst.waitForDeployment();
     const poseidonAddr = await poseidonInst.getAddress();
 
+    // Mock the shield-deposit verifier (this test isn't about deposit
+    // proofs; ShieldVerifier behavior is exercised end-to-end in
+    // Shield.e2e.test.js). Use the real TransferVerifier + UnshieldVerifier
+    // because we want the Merkle root + nullifier path to validate
+    // against actual ZK proofs.
+    const ShieldV = await ethers.getContractFactory("MockShieldVerifier");
+    const shieldV = await ShieldV.deploy();
+    await shieldV.waitForDeployment();
+
     const TransferV = await ethers.getContractFactory(
       "contracts/verifiers/TransferVerifier.sol:TransferVerifier",
     );
@@ -72,6 +92,7 @@ describe("Shield Merkle tree: 多 leaf 场景", function () {
 
     const Shield = await ethers.getContractFactory("Shield");
     shield = await Shield.deploy(
+      await shieldV.getAddress(),
       await transferV.getAddress(),
       await unshieldV.getAddress(),
       poseidonAddr,
@@ -85,7 +106,7 @@ describe("Shield Merkle tree: 多 leaf 场景", function () {
     const commitments = [randomField(), randomField(), randomField()];
     const amount = ethers.parseEther("1");
     for (const c of commitments) {
-      await shield.connect(user1).deposit(c, NATIVE_TOKEN, amount, "0x", { value: amount });
+      await shield.connect(user1).deposit(ZERO_PROOF.pA, ZERO_PROOF.pB, ZERO_PROOF.pC, c, NATIVE_TOKEN, amount, "0x", { value: amount });
     }
 
     // off-chain 按标准 Merkle 重建
@@ -122,7 +143,7 @@ describe("Shield Merkle tree: 多 leaf 场景", function () {
 
     // 全部 deposit
     for (const n of notes) {
-      await shield.connect(user1).deposit(n.commitment, NATIVE_TOKEN, n.amount, "0x", { value: n.amount });
+      await shield.connect(user1).deposit(ZERO_PROOF.pA, ZERO_PROOF.pB, ZERO_PROOF.pC, n.commitment, NATIVE_TOKEN, n.amount, "0x", { value: n.amount });
     }
 
     // 取第 1 笔（leafIndex=1）
@@ -163,10 +184,14 @@ describe("Shield Merkle tree: 多 leaf 场景", function () {
     }
 
     const currentRoot = (await shield.getLastRoot()).toString();
+    // `relayer` is bound into the proof in audit Issue 3 (circuit) /
+    // Issue 4 (contract); the unshield circuit has 7 public inputs now
+    // (was 6), with relayer slotted between recipient and tokenId.
     const input = {
       root: currentRoot,
       nullifierHash: nullifierHash.toString(),
       recipient: BigInt(recipient.address).toString(),
+      relayer: BigInt(relayer.address).toString(),
       tokenId: target.tokenId.toString(),
       amount: target.amount.toString(),
       fee: "0",

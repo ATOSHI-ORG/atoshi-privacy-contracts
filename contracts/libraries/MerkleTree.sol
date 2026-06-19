@@ -84,7 +84,13 @@ library MerkleTree {
         uint256 _leaf
     ) internal returns (uint32 index) {
         uint32 _nextIndex = self.nextIndex;
-        require(_nextIndex < uint32(2) ** self.levels, "Merkle tree is full");
+        // Compute the capacity in uint256 so the multiplication doesn't
+        // overflow when self.levels == 32 (the audit Issue 7 maximum):
+        // uint32(2) ** 32 == 4_294_967_296 which is 1 above uint32.max
+        // and triggers Solidity 0.8's arithmetic-overflow panic before
+        // the comparison even runs. With the uint256 cast both sides of
+        // the comparison fit comfortably.
+        require(uint256(_nextIndex) < (uint256(1) << self.levels), "Merkle tree is full");
         
         uint32 currentIndex = _nextIndex;
         uint256 currentLevelHash = _leaf;
