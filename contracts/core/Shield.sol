@@ -187,7 +187,15 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         uint256 _fee,
         address _token,
         uint256 _amount
-    ) external override nonReentrant whenNotPaused validToken(_token) {
+    ) external override nonReentrant whenNotPaused {
+        // NOTE: deliberately no validToken(_token) modifier here. The
+        // whitelist is meant to gate NEW deposits; users who already have
+        // notes in the pool from a previously-whitelisted token must be
+        // able to withdraw their funds even after removeSupportedToken()
+        // is called. With the modifier, removeSupportedToken would
+        // effectively lock all outstanding notes of that token, which is
+        // the opposite of what an emergency-disable should do (audit
+        // Issue 6).
         require(_nullifierHash < FIELD_SIZE, "Shield: invalid nullifier");
         require(!nullifierHashes[_nullifierHash], "Shield: already spent");
         require(isKnownRoot(_root), "Shield: unknown root");
@@ -343,7 +351,9 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
     }
     
     /**
-     * @notice Remove a supported token
+     * @notice Remove a supported token. Blocks NEW deposits of this
+     *         token; does NOT block withdrawals of existing notes — see
+     *         the comment on withdraw() for why (audit Issue 6).
      */
     function removeSupportedToken(address _token) external onlyOwner {
         supportedTokens[_token] = false;
