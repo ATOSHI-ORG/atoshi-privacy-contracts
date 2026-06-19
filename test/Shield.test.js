@@ -43,8 +43,8 @@ describe("Shield Contract", function () {
 
     // Deploy real Poseidon(2) from circomlibjs bytecode. The contract's
     // Merkle tree must hash with the same Poseidon as the off-chain
-    // circuit; the previous in-tree libraries/Poseidon.sol was a
-    // keccak256 placeholder that produced incompatible hashes.
+    // circuit, so any Solidity-side keccak placeholder would produce
+    // incompatible hashes.
     const poseidonAbi = poseidonContract.generateABI(2);
     const poseidonBytecode = poseidonContract.createCode(2);
     const poseidonFactory = new ethers.ContractFactory(poseidonAbi, poseidonBytecode, owner);
