@@ -55,7 +55,6 @@ async function main() {
   const shieldVerifierArtifact   = loadArtifact("verifiers/ShieldVerifier.sol/ShieldVerifier.json");
   const transferVerifierArtifact = loadArtifact("verifiers/TransferVerifier.sol/TransferVerifier.json");
   const unshieldVerifierArtifact = loadArtifact("verifiers/UnshieldVerifier.sol/UnshieldVerifier.json");
-  const tokenRegistryArtifact    = loadArtifact("tokens/TokenRegistry.sol/TokenRegistry.json");
   const energySettlementArtifact = loadArtifact("core/EnergySettlement.sol/EnergySettlement.json");
   const shieldArtifact           = loadArtifact("core/Shield.sol/Shield.json");
   console.log("Artifacts 加载完成");
@@ -124,20 +123,10 @@ async function main() {
   console.log("   EnergySettlement: ", energySettlementAddress);
   console.log("");
 
-  // ============== TokenRegistry ==============
-  console.log("4/5  部署 TokenRegistry...");
-  const tokenRegistry = await new ethers.ContractFactory(
-    tokenRegistryArtifact.abi, tokenRegistryArtifact.bytecode, wallet,
-  ).deploy(txOpts(3_000_000));
-  await tokenRegistry.waitForDeployment();
-  const tokenRegistryAddress = await tokenRegistry.getAddress();
-  console.log("   TokenRegistry:    ", tokenRegistryAddress);
-  console.log("");
-
   // ============== Shield ==============
   // Constructor signature: (transferVerifier, unshieldVerifier,
   // poseidon, feeRecipient). Order matters.
-  console.log("5/5  部署 Shield...");
+  console.log("4/4  部署 Shield...");
   const shield = await new ethers.ContractFactory(
     shieldArtifact.abi, shieldArtifact.bytecode, wallet,
   ).deploy(
@@ -171,7 +160,6 @@ async function main() {
       UnshieldVerifier:  unshieldVerifierAddress,
       Poseidon:          poseidonAddress,
       EnergySettlement:  energySettlementAddress,
-      TokenRegistry:     tokenRegistryAddress,
       Shield:            shieldAddress,
     },
   };
@@ -187,7 +175,6 @@ async function main() {
   console.log("UnshieldVerifier: ", unshieldVerifierAddress);
   console.log("Poseidon(2):      ", poseidonAddress);
   console.log("EnergySettlement: ", energySettlementAddress);
-  console.log("TokenRegistry:    ", tokenRegistryAddress);
   console.log("Shield:           ", shieldAddress);
   console.log("============================================================");
   console.log("");
