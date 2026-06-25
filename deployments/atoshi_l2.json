@@ -1,14 +1,14 @@
 {
   "network": "atoshi_l2",
   "chainId": 67890,
-  "rpcUrl": "http://52.76.210.218:8123",
+  "rpcUrl": "http://localhost:8123",
   "deployer": "0x73aF73D9662BB7dDF7FED8528Ee0DA56EdD823AC",
-  "timestamp": "2026-06-03T08:33:13.301Z",
+  "timestamp": "2026-06-21T21:32:15.827Z",
   "contracts": {
-    "ShieldVerifier": "0xF43899DE8f1a0f2C3Afa2340147ed5e4413d0E01",
-    "TransferVerifier": "0x581BC43B990C8EeE91A4B092B0E7F5e65C07872b",
-    "UnshieldVerifier": "0x4f350841fb4A26F91480915257d9ADfE176d1a91",
-    "Poseidon": "0xcd0894b30b59068AFB9CbCF89E5207a3eB635231",
-    "Shield": "0x4A951a4Bc79F156c0658d71675dcC5b2348E95DB"
+    "ShieldVerifier": "0x8409B3Fd5b7F48678AA8D0Ffc97aDFa18612dA6A",
+    "TransferVerifier": "0x14B3743E87d75786Ce350cAF26e1F719Ae5c0825",
+    "UnshieldVerifier": "0xa7944803e80B93952e9421622A4aBf75E77B5D17",
+    "Poseidon": "0xC1d3Bb5B7b9f4f097e7cD0126608D498A2986DAe",
+    "Shield": "0xB515a4a438c168cf34F1ABEEa40a835a39af5625"
   }
 }
