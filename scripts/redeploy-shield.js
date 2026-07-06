@@ -16,20 +16,28 @@
 //   2. 打印新 Shield 地址
 //   3. 提示如何更新文档 / 跑 e2e 验证
 //
-// 已部署且复用的地址(从 PLAN.md)：
+// 已部署且复用的地址(从 deployments/atoshi_l2.json)：
+//   ShieldVerifier:   0x8409B3Fd5b7F48678AA8D0Ffc97aDFa18612dA6A
 //   TransferVerifier: 0x14B3743E87d75786Ce350cAF26e1F719Ae5c0825
 //   UnshieldVerifier: 0xa7944803e80B93952e9421622A4aBf75E77B5D17
 //   Poseidon:         0xC1d3Bb5B7b9f4f097e7cD0126608D498A2986DAe
+//
+// 注意：Shield 构造函数现在收 5 个参数
+//   (shieldVerifier, transferVerifier, unshieldVerifier, poseidon, feeRecipient)
+// 电路 public-input 变更(deposit 暴露 amount+tokenId、unshield 绑定 recipient+relayer)
+// 重跑 trusted setup / 重新导出 Verifier.sol 之后,把下方四个地址常量换成新部署地址
+// (或用同名 env var 覆盖)。
 // ============================================================================
 
 const { ethers } = require("ethers");
 const fs = require("fs");
 const path = require("path");
 
-// ---- 已部署的合约地址(复用) ----
-const TRANSFER_VERIFIER = "0x14B3743E87d75786Ce350cAF26e1F719Ae5c0825";
-const UNSHIELD_VERIFIER = "0xa7944803e80B93952e9421622A4aBf75E77B5D17";
-const POSEIDON          = "0xC1d3Bb5B7b9f4f097e7cD0126608D498A2986DAe";
+// ---- 已部署的合约地址(复用, 可用同名 env var 覆盖) ----
+const SHIELD_VERIFIER   = process.env.SHIELD_VERIFIER   || "0x8409B3Fd5b7F48678AA8D0Ffc97aDFa18612dA6A";
+const TRANSFER_VERIFIER = process.env.TRANSFER_VERIFIER || "0x14B3743E87d75786Ce350cAF26e1F719Ae5c0825";
+const UNSHIELD_VERIFIER = process.env.UNSHIELD_VERIFIER || "0xa7944803e80B93952e9421622A4aBf75E77B5D17";
+const POSEIDON          = process.env.POSEIDON          || "0xC1d3Bb5B7b9f4f097e7cD0126608D498A2986DAe";
 
 async function main() {
   console.log("=".repeat(60));
@@ -66,6 +74,7 @@ async function main() {
 
   // ---- 确认 Verifier + Poseidon 都还在链上 ----
   for (const [name, addr] of [
+    ["ShieldVerifier",   SHIELD_VERIFIER],
     ["TransferVerifier", TRANSFER_VERIFIER],
     ["UnshieldVerifier", UNSHIELD_VERIFIER],
     ["Poseidon",         POSEIDON],
@@ -90,6 +99,7 @@ async function main() {
   };
 
   const shield = await ShieldFactory.deploy(
+    SHIELD_VERIFIER,         // ← 构造函数新增的 deposit(shield) 电路 verifier
     TRANSFER_VERIFIER,
     UNSHIELD_VERIFIER,
     POSEIDON,
