@@ -140,6 +140,58 @@ describe("Shield Contract", function () {
     });
   });
 
+  describe("Withdraw - relayer binding (audit Q8)", function () {
+    // Deposit once so the contract holds funds and exposes a known root.
+    async function depositAndRoot(amount) {
+      await shield.connect(user1).deposit(
+        ZERO_PROOF.pA, ZERO_PROOF.pB, ZERO_PROOF.pC,
+        BigInt("98765432109876543210"), NATIVE_TOKEN, amount, "0x", { value: amount }
+      );
+      return shield.getLastRoot();
+    }
+
+    it("reverts when _fee > 0 and caller is not the _relayer", async function () {
+      const amount = ethers.parseEther("1");
+      const root = await depositAndRoot(amount);
+      // user1 (not the relayer) tries to broadcast a withdraw whose fee is
+      // directed to `relayer`. Must revert at the guard, before proof verify.
+      await expect(
+        shield.connect(user1).withdraw(
+          ZERO_PROOF.pA, ZERO_PROOF.pB, ZERO_PROOF.pC,
+          root, 111n, user2.address, relayer.address,
+          ethers.parseEther("0.1"), NATIVE_TOKEN, amount
+        )
+      ).to.be.revertedWith("Shield: relayer must be caller");
+    });
+
+    it("allows the relayer to broadcast its own fee'd withdraw", async function () {
+      const amount = ethers.parseEther("1");
+      const root = await depositAndRoot(amount);
+      // relayer broadcasts and _relayer == msg.sender — guard passes (mock
+      // verifier returns true, so the full withdraw succeeds).
+      await expect(
+        shield.connect(relayer).withdraw(
+          ZERO_PROOF.pA, ZERO_PROOF.pB, ZERO_PROOF.pC,
+          root, 222n, user2.address, relayer.address,
+          ethers.parseEther("0.1"), NATIVE_TOKEN, amount
+        )
+      ).to.not.be.reverted;
+    });
+
+    it("allows a self-paid withdraw (fee = 0) from any caller", async function () {
+      const amount = ethers.parseEther("1");
+      const root = await depositAndRoot(amount);
+      // No relayer, fee = 0 — the guard's `_fee == 0` branch permits it.
+      await expect(
+        shield.connect(user1).withdraw(
+          ZERO_PROOF.pA, ZERO_PROOF.pB, ZERO_PROOF.pC,
+          root, 333n, user2.address, ethers.ZeroAddress,
+          0n, NATIVE_TOKEN, amount
+        )
+      ).to.not.be.reverted;
+    });
+  });
+
   describe("Deposit - ERC20 Token", function () {
     it("Should accept ERC20 token deposits", async function () {
       const commitment = BigInt("12345678901234567890");

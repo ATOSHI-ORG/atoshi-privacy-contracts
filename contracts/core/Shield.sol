@@ -290,6 +290,15 @@ contract Shield is IShield, ReentrancyGuard, Ownable {
         // contract. Self-paid withdraws (no relayer) must set _fee = 0
         // (audit Issue 5).
         require(_relayer != address(0) || _fee == 0, "Shield: fee=0 required without relayer");
+        // The account that receives _fee (_relayer) MUST be the one broadcasting
+        // this tx. Otherwise a note owner could craft a proof that pays _fee to
+        // an arbitrary address and have a relayer broadcast it — the relayer
+        // bears the gas while the fee is redirected elsewhere (contract audit Q8
+        // follow-up). The off-chain relayer already rejects proofs whose relayer
+        // field != its own address, but enforcing it on-chain makes the
+        // guarantee trustless and independent of the relayer implementation.
+        // Self-paid withdraws set _fee == 0 and are unaffected.
+        require(msg.sender == _relayer || _fee == 0, "Shield: relayer must be caller");
 
         // Verify ZK proof against the unshield circuit verifier.
         // Public inputs (must match circuits/unshield.circom output order):
